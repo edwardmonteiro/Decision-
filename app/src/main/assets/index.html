@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"><meta name="theme-color" content="#07121e"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'"><title>LUMI Orbit</title><link rel="stylesheet" href="style.css"></head>
+<body><main id="app"><canvas id="space" aria-label="Campo de estrelas. Arraste para pilotar a nave."></canvas>
+<section id="home" class="screen">
+<header><span class="wordmark">LUMI</span><div class="tools"><button id="sound" class="icon" aria-label="Desligar som"></button><button id="settings" class="icon" aria-label="Configurações"></button></div></header>
+<h1>Pequena nave.<br>Grande aventura.</h1>
+<div class="home-bottom"><p>Resgate estrelas. Ilumine o universo.</p><button id="play" class="primary">JOGAR <span>↗</span></button><p class="hint">Arraste para pilotar.<br>O disparo é automático.</p><span id="record" class="micro"></span></div>
+</section>
+<section id="hud" class="screen hidden"><header><div class="score"><b id="score">0</b><span>PONTOS</span></div><div id="lives" aria-label="3 corações"></div><button id="pause" class="icon circle" aria-label="Pausar"></button></header><div class="mission"><span id="mission-name">JARDIM DE ESTRELAS</span><strong id="goal">ESTRELAS 0 / 8</strong><div class="progress"><i id="progress"></i></div></div><div id="toast" role="status"></div><div id="control-hint">Arraste para pilotar</div><button id="shield" aria-label="Ativar escudo"><span id="shield-icon"></span><small id="shield-label">ESCUDO</small></button></section>
+<section id="result" class="screen hidden"><header><span class="wordmark">LUMI</span><button id="result-home" class="icon" aria-label="Início"></button></header><div class="result-body"><h2 id="result-title">Você iluminou o céu!</h2><div id="medals" aria-label="Estrelas da aventura">☆ ☆ ☆</div><p id="result-stars">8 estrelas resgatadas</p><span class="micro">PONTUAÇÃO</span><strong id="final-score">840</strong><p id="result-note" class="hint"></p><button id="again" class="primary">MAIS UMA AVENTURA <span>↗</span></button></div></section>
+<div id="overlay" class="hidden"><section id="panel" role="dialog" aria-modal="true" aria-labelledby="panel-title"></section></div>
+</main><script src="game.js"></script></body></html>

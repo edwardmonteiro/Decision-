@@ -1,0 +1,48 @@
+name: Verify and build Android
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m unittest discover -s tests -v
+      - run: node --check app/src/main/assets/game.js
+  apk:
+    if: github.event_name == 'workflow_dispatch'
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Build with the original release certificate
+        env:
+          LUMI_KEYSTORE_BASE64: ${{ secrets.LUMI_KEYSTORE_BASE64 }}
+          LUMI_STOREPASS: ${{ secrets.LUMI_STOREPASS }}
+        run: |
+          test -n "$LUMI_KEYSTORE_BASE64" || { echo 'Configure the private release signing secrets first.'; exit 1; }
+          printf '%s' "$LUMI_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/lumi-release.jks"
+          export LUMI_KEYSTORE="$RUNNER_TEMP/lumi-release.jks"
+          export ANDROID_JAR="$ANDROID_HOME/platforms/android-35/android.jar"
+          export BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          bash scripts/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LUMI-Orbit-v0.1.0
+          path: build/LUMI-Orbit-v0.1.0.apk

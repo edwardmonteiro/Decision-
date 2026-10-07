@@ -1,0 +1,11 @@
+build/
+*.jks
+*.keystore
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+*.sqlite*
+server/runtime/
+node_modules/
