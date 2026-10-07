@@ -19,6 +19,14 @@ jobs:
           node-version: '22'
       - run: python -m unittest discover -s tests -v
       - run: node --check app/src/main/assets/game.js
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Test native OpenAI orchestration with fixtures
+        run: |
+          curl --fail --location https://repo.maven.apache.org/maven2/org/json/json/20250517/json-20250517.jar --output "$RUNNER_TEMP/json.jar"
+          JSON_JAR="$RUNNER_TEMP/json.jar" bash scripts/test-direct.sh
   apk:
     if: github.event_name == 'workflow_dispatch'
     needs: verify
@@ -44,5 +52,5 @@ jobs:
           bash scripts/build.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: LUMI-Orbit-v0.1.0
-          path: build/LUMI-Orbit-v0.1.0.apk
+          name: LUMI-Orbit-v0.2.0
+          path: build/LUMI-Orbit-v0.2.0.apk

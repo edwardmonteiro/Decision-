@@ -1,75 +1,50 @@
-# Operations and activation
+# Direct Android operation — v0.2.0
 
-## Actual delivery state
+## Setup
 
-No OpenAI project key was present in the execution environment. A trusted Codex API-key local-write setup skill was not installed, so no credentials were created, copied, embedded, or requested in chat. No billable service or managed environment was provisioned. The app is fully playable offline and labels disconnected AI honestly.
+Install the signed APK. Open Configurações → Área dos responsáveis → solve the gate → CONECTAR OPENAI. Enter your own API key in the native dialog. No backend URL, device token, Python server or hosting account is required.
 
-The remaining activation requires secure account setup, a public HTTPS deployment, Vault provisioning, and live end-to-end acceptance. These are not represented as completed.
+Connection performs a billable Decisions probe and, subject to access, creates/reuses a Vault and starts mission preparation. The key stays in Android's private preferences encrypted with an Android Keystore AES-GCM key. Backups and WebView debugging are disabled. It is not sent to JavaScript or stored in the OpenAI Vault. Do not put keys in chat, issues or source control.
 
-## Backend configuration
+The arithmetic parent gate prevents casual child access; it is not authentication. Use the device lock to control access. The BYOK design is intended for a parent's personal device, not distribution of a shared secret to customers.
 
-Run Python 3.10+ using `python server/app.py`, or use `server/Dockerfile`. Put an HTTPS reverse proxy in front. Python's built-in HTTP server is intentionally a **single-instance family pilot**, not a public scalable production endpoint. Enforce upstream connection limits and request-rate limits before public exposure. Persistent storage is required for budgets to survive restarts.
+## Real statuses
 
-Use the deployment's secret manager, not source code or the APK:
+The parent panel reports Decisions, Session, Environment and Vault independently, including provider resource IDs and the last verification time. HTTP 401, 403, 404 and 429 have distinct messages. A saved key alone does not establish readiness.
 
-| Variable | Purpose |
-|---|---|
-| `OPENAI_API_KEY` | Application key for Decisions, Agents and Vault setup; backend only |
-| `LUMI_DEVICE_TOKEN` | Random token of at least 24 characters; paired with the parent-owned APK |
-| `LUMI_CATALOG_TOKEN` | Different random token of at least 24 characters; read-only catalog credential |
-| `LUMI_PUBLIC_URL` | HTTPS backend base URL, standard port 443 or 8443 |
-| `LUMI_VAULT_ID` | ID produced by the provisioning script |
-| `LUMI_AGENT_MODEL` | Managed-agent model; default `gpt-6-astra`, subject to account availability |
-| `LUMI_DB` | Persistent SQLite path; default `server/runtime/lumi.sqlite` |
-| `LUMI_MAX_DAILY_RUNS` | Global session request count cap; default 12 per UTC day |
-| `LUMI_MAX_DAILY_DECISIONS` | Global Decisions request count cap; default 24 per UTC day |
+Readiness requires a valid Decisions response, a created/verified Vault, a connected hosted environment and a validated mission from a completed root turn. These are historical checks; the completed planning session is promptly deleted to release resources. “Sandbox validado e encerrado” is intentional, not a permanently running environment. A new plan temporarily shows its current preparation state.
 
-After secure credentials and an HTTPS endpoint exist, run `python server/provision.py` once. Store its returned vault ID in deployment configuration. The script binds the catalog token to the exact backend hostname using `auth.networking.allowed_hosts`. Session creation additionally restricts sandbox networking with `allowed_domains`.
+The Vault is attached to each managed session and deliberately contains no external credentials. The self-contained sandbox has no network access or external catalog dependency. Adding dummy credentials would serve no purpose.
 
-Open the APK → settings → Área dos responsáveis → complete the gate → enter the backend URL and **device token**. The app rejects a token beginning with `sk-`. `GET /health` confirms that required configuration exists, not that account entitlements or live inference have succeeded.
+## Data and gameplay
 
-Do not paste secrets into a chat, issue, or commit. The parent gate prevents casual child access; it is not an authentication boundary. Server bearer authentication is the actual boundary.
+Only six integer metrics reach Decisions: wave, collected stars, collisions, shots, cleared asteroids and elapsed seconds. Player names, photos, voice, locations and device identifiers are not collected. The agent sees fixed instructions for a numeric mission, not a conversation with the child.
 
-## API surface
+Mission acceptance requires exactly three fields: approved mission_id, eight star_lanes within [0.12, 0.88] and asteroid_speed within [0.8, 1.1]. Neighboring lanes may differ by at most 0.4. Every value is validated natively and again before gameplay. Generated text/code is never executed on Android.
 
-| Method | Route | Token | Result |
-|---|---|---|---|
-| GET | `/health` | Device | Configuration status, no secrets |
-| POST | `/v1/runs` | Device | Local run ID; asynchronous agent planning |
-| GET | `/v1/runs/{id}` | Device | Mission/status for the owner |
-| POST | `/v1/runs/{id}/decision` | Device | One validated, cached answer per wave |
-| DELETE | `/v1/runs/{id}` | Device | Close run and request sandbox cleanup |
-| GET | `/catalog` | Catalog | Approved mission catalog only |
+Decisions chooses gentle, steady or bright. Bright is clamped to steady below four collected stars or after any collision. Timing changes apply between waves, so calls cannot block rendering or touch input. No online response is necessary to finish a round.
 
-No arbitrary proxies, free-text prompts, administrative routes, browsing tools, purchases or outbound communications are exposed to the APK.
+## Quotas and lifecycle
 
-## Boundaries and costs
+- Local persistent caps: 24 Decisions requests and 12 session requests per UTC day, scoped to the entered key. Reinstalling/clearing app data resets local counters; these are not provider-enforced spending limits.
+- At most two active local rounds and one planner. Per-wave Decisions answers are cached. The next mission is cached until consumed.
+- Agent polling lasts up to 110 seconds plus in-flight HTTPS time. Transport connect timeout is 10 seconds and read timeout is 18 seconds. No blind retry of billable POST requests.
+- Sessions are deleted after success/failure and on orderly activity teardown. Pending known IDs are retried after restart or a new test. Already-deleted sessions are treated as cleaned up.
+- Android may kill the process before cleanup. The saved ID enables retry on reopening; a session-creation timeout before receiving its ID cannot be automatically reconciled. Check the Platform session list after interrupted preparation.
+- Changing/removing a key attempts cleanup with the old key. The reusable empty Vault remains in the account. Remove it in Platform if no longer wanted.
+- Removals do not promise secure memory erasure or remote history deletion. Provider retention and billing follow the account's settings.
+- Check account budgets and service access in Platform. Request caps do not guarantee a maximum currency amount.
 
-- Two simultaneous runs maximum; one application token represents one family deployment.
-- Two Decisions requests per game, issued near seconds 14 and 34. Changes apply between waves.
-- Decisions answers cannot set physics arbitrarily. Pace multipliers are 0.76, 1.0, or 1.15.
-- `bright` is capped to `steady` unless the child has at least four stars and zero collisions.
-- Request body limit: 8 KiB. Typed numeric-only game metrics; reject extra fields.
-- Sessions have a 120-second application lifetime. Planner deadline is 85 seconds plus an in-flight provider request timeout.
-- Delete managed sessions after planning succeeds/fails, on client close, and on expiration. Janitor retries cleanup every 30 seconds.
-- A provider timeout during session creation can leave an unconfirmed remote session. There is no blind POST retry; reconcile the Platform session list. A restart during an external request has the same limitation.
-- Count quotas are not dollar-denominated spend guarantees. Set provider project spend limits before live use.
-- Logs contain event codes and run IDs, never credentials or child names. No photos, voice, location or personal identifiers are collected.
-- Local game score remains on the phone. Backend run/decision records expire after 24 hours; sanitized audit after seven days.
-- OpenAI retention is provider-controlled. Verify the account's data controls and applicable children's-product requirements before public distribution.
-- Aggregate telemetry is enabled only after the parent enters the backend configuration. No connected mode is shipped by default.
+## Verification still required on the actual account/device
 
-## Live acceptance checklist (pending)
+The repository's tests use fixture responses; no API key was available to the builder. Successful compilation is not a physical-device test. After entering your key, inspect real statuses and IDs, play an AI-labelled mission, and confirm Decisions results and session cleanup in Platform. If an API is unavailable to the account, the app reports it and continues with local rules.
 
-1. Confirm actual project access to Decisions and Agents APIs.
-2. Provision the Vault and verify that catalog credentials are never returned by read APIs.
-3. Start a game; verify an actual managed session/environment in the Platform console.
-4. Verify authenticated catalog GET and completed root turn, then an allowlisted mission appears for the next round.
-5. Verify a real Decisions `choice` response and its request ID; ensure the bounded change occurs at a wave boundary.
-6. Disable network while playing; movement, sound and scoring must continue immediately.
-7. Verify rate limits, cleanup and provider billing in the real deployment.
-8. Install on the target Samsung and verify system bars, touch, background/resume, audio and frame pacing.
+On the target Android phone, verify installation, touch, sound, system bars and background/resume. Disable connectivity mid-round to confirm uninterrupted local play. Review the account's data controls and applicable children's-product requirements before public distribution.
+
+## Legacy backend
+
+`server/` preserves the v0.1 backend implementation and its fixture tests for reference. It is not started or contacted by v0.2. Its deployment variables and catalog-credential provisioning script are unrelated to direct mobile setup.
 
 ## Signing
 
-The private release keystore and its password are not in this repository. Retain both to sign updates with the same certificate. CI secret names are `LUMI_KEYSTORE_BASE64` and `LUMI_STOREPASS`. Do not publish signing material in GitHub artifacts or releases.
+Retain the original private release keystore and password to sign updates. CI secrets: LUMI_KEYSTORE_BASE64 and LUMI_STOREPASS. Never publish these in the repository or release assets.

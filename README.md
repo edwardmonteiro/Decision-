@@ -1,90 +1,79 @@
 # LUMI Orbit
 
-A small, joyful Android vector arcade game for children. Built for portrait, one-finger play, short rounds, and local responsiveness.
+A fast, friendly Android vector arcade game for children. Portrait, one-finger controls, short expeditions, original synthesized sound and procedural line art.
 
-**Delivery status — v0.1.0:** the signed APK and offline game are implemented. OpenAI adapters are implemented against official documentation and tested with fixtures. **No live OpenAI calls, hosted backend, vault, or managed session have been activated in this delivery.** Account credentials and a public HTTPS backend are still required. This is a family pilot, not a production service or Play Store launch.
+**v0.2.0 runs on the phone and connects directly to OpenAI. No separately deployed backend is required.** The signed APK plays offline immediately. To enable cloud features, a parent enters their own OpenAI API key in the native Android connection dialog. The app then makes real API calls and reports each service's result and resource IDs.
+
+No key was available during development, so live account access and inference remain unverified. Compile, signature, gameplay and fixture tests do not establish live activation.
+
+## Install and connect
+
+1. Install `LUMI-Orbit-v0.2.0.apk` on Android 9 or newer. It uses the same signing certificate as v0.1.0 and can update it.
+2. Open **Configurações → Área dos responsáveis**, answer the parent gate, then choose **CONECTAR OPENAI**.
+3. Enter your API key in the protected native Android dialog and select **Conectar e testar**. API access, internet and account billing are required.
+4. The app tests Decisions, creates or reuses a Vault, and prepares a mission with a managed Session and hosted Environment. The panel shows errors if the account lacks access or quota.
+5. Play while the mission prepares. Validated mission data appears in the next available expedition.
+
+The API key is encrypted using Android Keystore, excluded from backups, and never passed to game JavaScript. This is a personal-device, bring-your-own-key app; no shared developer secret is embedded in the APK. A mobile device cannot guarantee protection of an API key against a compromised operating system. For public distribution with centrally funded access, use a server-mediated architecture.
 
 ## Play
 
-- Drag anywhere in the playfield to move the ship. Shooting and aim assistance are automatic.
-- Approach golden stars to rescue them. Rescue eight stars to complete the expedition.
-- Tap the shield for three seconds of protection. It recharges in ten seconds.
-- A round ends after 60 seconds, eight stars, or three collisions. Every ending encourages another try.
-- Three mission patterns: star garden, comet stream, moon rings.
-- Original synthesized sound, procedural vector graphics, optional reduced effects, local progress.
-- Android 9+; portrait; no accounts, ads, trackers, microphone, location, camera, purchases, or web content.
+- Drag to move. Shooting and aim assistance are automatic.
+- Approach golden stars to rescue them. Collect eight to complete the expedition.
+- The shield protects for three seconds and recharges in ten.
+- Rounds last up to 60 seconds or three collisions. Every ending encourages another try.
+- Three bounded patterns: star garden, comet stream and moon rings.
+- No ads, trackers, microphone, camera, location or free-text interaction with children.
 
-## What each OpenAI service does
+## OpenAI integration
 
-| Service | Implementation | Runtime boundary |
-|---|---|---|
-| Decisions | `POST /v1/decisions`, `gpt-6-luna`, typed `choice` answer | At most two requests per round, ahead of wave boundaries; bounded difficulty changes |
-| Agent Session | A managed mission-planning session per connected expedition | Created asynchronously; final message accepted only after a completed root turn |
-| Environment | `openai_hosted`, `small`, restricted network | Agent reads approved mission catalog; no model-generated code runs on the phone |
-| Vault | Environment-variable credential for read-only `/catalog` | Actual secret injected by the OpenAI proxy only for the allowlisted HTTPS host |
-| APK | Offline physics and rendering | Never contains the OpenAI key; optional backend token encrypted with Android Keystore |
+| Component | Actual job |
+|---|---|
+| Decisions | `POST /v1/decisions`, model `gpt-6-luna`: select gentle, steady or bright pace from numeric game metrics, at most twice per round |
+| Session | `POST /v1/agents/sessions`, model `gpt-6-astra`: prepare an eight-star flight pattern, accepted only from a completed root turn |
+| Environment | Small `openai_hosted` sandbox with networking disabled; the agent is instructed to generate and validate its numeric pattern using Python |
+| Vault | A real reusable Vault is created and attached through `vault_ids`. It is empty because this game requires no external-service credentials |
+| Android | Local rendering, physics, sound, progress, API orchestration, encrypted key storage and strict validation |
 
-The Vault stores the **catalog token**, not player progress and not the OpenAI application key. The application key stays only in the backend secret manager.
+The OpenAI Vault does **not** hold the main API key. Android Keystore protects that key locally. Sessions and environments run in OpenAI's cloud; gameplay runs on the phone. The app verifies environment connectivity and validated final output, but does not claim to audit every tool execution.
 
-The managed agent selects a mission from an approved catalog. It does not invent unrestricted children's content. The selected mission is queued for the next round, so provider latency cannot interrupt the current game. Decisions selects `gentle`, `steady`, or `bright`. Local code owns all numeric bounds and applies the change between waves. Offline rules remain available on timeouts, refusals, quota errors, or missing setup; the parent area reports the real connection status.
-
-```mermaid
-flowchart TD
-  P["Android: input, physics, audio"] -->|"Optional aggregate metrics over HTTPS"| B["Authenticated family backend"]
-  B --> D["Decisions: bounded pace"]
-  B --> S["Agent Session: next mission"]
-  S --> E["Isolated hosted environment"]
-  V["Vault: catalog credential"] --> E
-  E -->|"Restricted HTTPS read"| C["Approved mission catalog"]
-  S -->|"Validated mission ID"| B
-  D -->|"Allowed choice"| B
-```
+Only an approved mission ID, eight bounded lane positions and a bounded speed multiplier can enter gameplay. No generated code or unrestricted text runs or displays in the game. Offline rules cover network failures. Daily local caps are 24 Decisions calls and 12 sessions; they are request limits, not dollar budgets.
 
 ## Source map
 
-- `app/src/main/assets/`: actual shipped Canvas game, CSS, HTML.
-- `app/src/main/java/com/edward/lumi/MainActivity.java`: Android shell, system-bar insets, lifecycle, encrypted connection token, fixed-path HTTPS bridge.
-- `server/provider.py`: documented OpenAI REST contracts and strict result validation.
-- `server/app.py`: authenticated API, SQLite budgets, asynchronous planning, cleanup and sanitized audit.
-- `server/provision.py`: one-time Vault and catalog credential provisioning.
-- `server/catalog.json`: approved mission catalog.
-- `tests/test_backend.py`: 13 contract and HTTP tests with a fake provider, never live API traffic.
-- `docs/operations.md`: deployment boundary, configuration, retention, and acceptance criteria.
-- `scripts/build.sh`: dependency-free Android compilation and release signing.
+- `app/src/main/assets/`: shipped Canvas game and interface.
+- `app/src/main/java/com/edward/lumi/MainActivity.java`: Android shell, native key dialog, Keystore and fixed-host HTTPS transport.
+- `app/src/main/java/com/edward/lumi/DirectAi.java`: direct Decisions/Agents/Vault orchestration, quotas, validation and session cleanup.
+- `tests/java/com/edward/lumi/DirectAiTest.java`: native orchestration contract tests using an in-memory transport.
+- `docs/operations.md`: setup, resource lifecycle, limits and remaining device/live verification.
+- `server/`: legacy v0.1 optional backend reference. **The v0.2 APK does not call it.**
+- `scripts/build.sh`: Android compilation and release signing.
 
 ## Build and test
 
-Requires JDK 17+, Android platform API 35+, Android build tools 35+, Python 3.10+, and a private signing keystore. No Gradle, game engine, npm dependencies, or network access are needed by the build after those tools are available.
+Requires JDK 17+, Android platform API 35+, Android build tools 35+, Python 3.10+ and a private signing keystore. No Gradle, game engine or npm packages are needed by the APK build. After the tools are installed, compilation is offline.
 
 ```bash
-python3 -m unittest discover -s tests -v
 node --check app/src/main/assets/game.js
-# Set ANDROID_JAR, BUILD_TOOLS, LUMI_KEYSTORE, LUMI_STOREPASS in the build environment.
-# The signing key alias is lumi; signing material must stay outside this repository.
+# Standalone JVM tests require org.json:json:20250517 (Android provides org.json at runtime).
+JSON_JAR=/path/to/json-20250517.jar bash scripts/test-direct.sh
+python3 -m unittest discover -s tests -v  # legacy backend regression tests
+# Set ANDROID_JAR, BUILD_TOOLS, LUMI_KEYSTORE and LUMI_STOREPASS.
+# Keystore alias: lumi. Never commit signing material.
 bash scripts/build.sh
 ```
 
-The APK is written to `build/LUMI-Orbit-v0.1.0.apk`. The delivered release is signed with its own persistent key, not the Android debug key. Private signing backup is retained separately from this public repository. CI requires the matching signing secrets to produce updates compatible with the delivered APK.
+Output: `build/LUMI-Orbit-v0.2.0.apk`. CI requires the original signing secrets to produce compatible updates. A browser preview can serve `app/src/main/assets/`; the secure native connection dialog exists only in the APK.
 
-For a browser preview, serve `app/src/main/assets/` with a local HTTP server. The same game files run in the Android WebView. Native integration settings are available only in the APK.
+## Verification boundary
 
-## Verification
+- Compiled against API 36; minimum API 28, target API 35. Release signature verified.
+- Native orchestration tested with fixtures: provision, completed-turn handling, mission bounds, quota, errors, cleanup and Decisions caching.
+- Browser gameplay checked for touch movement, shield, pause, complete rounds, replay, saved progress and responsive layouts.
+- No physical Android device/emulator test or live OpenAI request was performed during this delivery. The parent panel performs real account checks after connection.
 
-- APK compiled against API 36, minimum API 28, target API 35; signing verified by `apksigner`.
-- Browser UI tested at 390×820, 360×640, and 1200×800.
-- Start, drag movement, shield/recharge, pause/resume, parent gate, round completion, replay reset, saved progress and layout checked; no app console errors after fixes.
-- Backend test suite: 13 passing tests, all using fixtures.
-- No physical Android-device/emulator run and no live OpenAI integration test have been performed. Do not infer those from the build or fixture tests.
+## Official contracts
 
-## Official references
+Checked 2026-10-07: [Decisions](https://developers.openai.com/api/docs/guides/decisions), [Agents quickstart](https://developers.openai.com/api/docs/guides/agents-api/quickstart), [Sessions](https://developers.openai.com/api/docs/guides/agents-api/sessions), [Events](https://developers.openai.com/api/docs/guides/agents-api/sessions/events), [Hosted environments](https://developers.openai.com/api/docs/guides/agents-api/environments/openai-hosted), [Vaults](https://developers.openai.com/api/docs/guides/agents-api/tools/vaults).
 
-Contracts checked on 2026-10-07:
-
-- [Decisions](https://developers.openai.com/api/docs/guides/decisions)
-- [Agents quickstart](https://developers.openai.com/api/docs/guides/agents-api/quickstart)
-- [Sessions](https://developers.openai.com/api/docs/guides/agents-api/sessions)
-- [Events and completed turns](https://developers.openai.com/api/docs/guides/agents-api/sessions/events)
-- [Hosted environments](https://developers.openai.com/api/docs/guides/agents-api/environments/openai-hosted)
-- [Vault credentials](https://developers.openai.com/api/docs/guides/agents-api/tools/vaults)
-
-MIT. Vector art, game design, and synthesized audio created for this project.
+MIT. Original vector art and synthesized audio.

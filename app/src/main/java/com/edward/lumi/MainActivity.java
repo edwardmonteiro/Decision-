@@ -1,6 +1,13 @@
 package com.edward.lumi;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.text.InputType;
+import android.view.WindowManager;
+import java.security.MessageDigest;
 import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -27,13 +34,16 @@ import java.util.concurrent.*;
 
 public class MainActivity extends Activity {
     private WebView web;
-    private final ExecutorService network = Executors.newFixedThreadPool(2);
+    private final ExecutorService network = Executors.newFixedThreadPool(3);
+    private volatile DirectAi ai;
+    private volatile boolean configuring;
     private static final String ORIGIN="https://lumi.local";
     private SharedPreferences prefs;
     private long lastHaptic;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         prefs=getSharedPreferences("lumi_connection",MODE_PRIVATE);
+        if(prefs.contains("openai_key")){try{DirectAi restored=createAi(decrypt(prefs.getString("openai_key","")));ai=restored;network.execute(restored::recover);}catch(Exception e){prefs.edit().remove("openai_key").apply();}}
         getWindow().setStatusBarColor(Color.rgb(7,18,30));
         getWindow().setNavigationBarColor(Color.rgb(7,18,30));
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -64,23 +74,66 @@ public class MainActivity extends Activity {
     private String decrypt(String text)throws Exception{String[] parts=text.split(":",2);Cipher c=Cipher.getInstance("AES/GCM/NoPadding");c.init(Cipher.DECRYPT_MODE,key(),new GCMParameterSpec(128,Base64.decode(parts[0],Base64.NO_WRAP)));return new String(c.doFinal(Base64.decode(parts[1],Base64.NO_WRAP)),StandardCharsets.UTF_8);}
     private void result(String id,JSONObject value){runOnUiThread(()->{if(!isFinishing()&&web!=null)web.evaluateJavascript("window.LumiNativeResult("+JSONObject.quote(id)+","+JSONObject.quote(value.toString())+")",null);});}
     private JSONObject error(String text){JSONObject o=new JSONObject();try{o.put("error",text);}catch(Exception ignored){}return o;}
+    private DirectAi createAi(String apiKey) throws Exception {
+        byte[] digest=MessageDigest.getInstance("SHA-256").digest(apiKey.getBytes(StandardCharsets.UTF_8));
+        StringBuilder hex=new StringBuilder();for(byte b:digest)hex.append(String.format("%02x",b));
+        String prefix="oa_"+hex.substring(0,16)+"_";
+        DirectAi.Store store=new DirectAi.Store(){
+            public String get(String k){return prefs.getString(prefix+k,"");}
+            public void put(String k,String v){prefs.edit().putString(prefix+k,v).commit();}
+            public void remove(String k){prefs.edit().remove(prefix+k).commit();}
+        };
+        return new DirectAi((path,method,body)->openai(apiKey,path,method,body),store);
+    }
+    private JSONObject openai(String apiKey,String path,String method,JSONObject body) throws Exception {
+        if(!path.matches("/(decisions|vaults(/[A-Za-z0-9_-]+)?|agents/(sessions|environments)(/[A-Za-z0-9_-]+)?(/(turns|items))?)(\\?[A-Za-z0-9_=&-]+)?"))throw new IOException("Invalid API path");
+        HttpsURLConnection c=(HttpsURLConnection)new URL("https://api.openai.com/v1"+path).openConnection();
+        try {
+            c.setInstanceFollowRedirects(false);c.setConnectTimeout(10000);c.setReadTimeout(18000);
+            c.setRequestMethod(method);c.setRequestProperty("Authorization","Bearer "+apiKey);
+            c.setRequestProperty("Content-Type","application/json");c.setRequestProperty("OpenAI-Beta","agents=v1");
+            if(body!=null){c.setDoOutput(true);try(OutputStream out=c.getOutputStream()){out.write(body.toString().getBytes(StandardCharsets.UTF_8));}}
+            int status=c.getResponseCode();
+            if(status<200||status>=300){
+                String message=status==401?"Chave inválida (HTTP 401)":status==403?"Sem permissão para este serviço (HTTP 403)":status==404?"Recurso ou modelo indisponível (HTTP 404)":status==429?"Limite de uso ou saldo OpenAI (HTTP 429)":status==400?"OpenAI não aceitou a configuração (HTTP 400)":"OpenAI indisponível (HTTP "+status+")";
+                throw new DirectAi.ApiError(status,message);
+            }
+            try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
+                byte[] buffer=new byte[4096];int n,total=0;while((n=in.read(buffer))!=-1){total+=n;if(total>2000000)throw new IOException("Response too large");out.write(buffer,0,n);}
+                return out.size()==0?new JSONObject():new JSONObject(out.toString("UTF-8"));
+            }
+        } finally {c.disconnect();}
+    }
+    private void notifyConnection(String message){runOnUiThread(()->{if(web!=null&&!isFinishing())web.evaluateJavascript("window.LumiConnectionChanged&&window.LumiConnectionChanged("+JSONObject.quote(message)+")",null);});}
+    private void setupOpenAI(){
+        if(configuring)return;
+        LinearLayout layout=new LinearLayout(this);layout.setOrientation(LinearLayout.VERTICAL);int pad=(int)(22*getResources().getDisplayMetrics().density);layout.setPadding(pad,pad,pad,pad);
+        TextView info=new TextView(this);info.setText("Cole sua chave de API OpenAI. Ela fica criptografada neste celular. O teste faz uma decisão e prepara uma missão na sua conta, com cobrança de API. Nenhum servidor próprio é necessário.");info.setTextSize(15);layout.addView(info);
+        EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Chave de API OpenAI");input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);input.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO);layout.addView(input);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Conectar OpenAI").setView(layout).setNegativeButton("Cancelar",(d,w)->input.setText("")).setPositiveButton("Conectar e testar",null).create();
+        dialog.setOnShowListener(d->{dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            String apiKey=input.getText().toString().trim();
+            if(!apiKey.startsWith("sk-")||apiKey.length()<24||apiKey.length()>1024||apiKey.matches(".*\\s.*")){input.setError("Informe uma chave de API válida.");return;}
+            input.setText("");dialog.dismiss();configuring=true;notifyConnection("Conectando diretamente à OpenAI…");
+            network.execute(()->{try{DirectAi previous=ai;ai=null;if(previous!=null)previous.stop();prefs.edit().putString("openai_key",encrypt(apiKey)).commit();ai=createAi(apiKey);ai.recover();ai.activate();notifyConnection("Conexão testada. Confira o resultado de cada serviço.");}catch(Exception e){notifyConnection("Não foi possível concluir a conexão. Confira sua chave e o acesso da conta.");}finally{configuring=false;}});
+        });});
+        dialog.setOnDismissListener(d->input.setText(""));dialog.show();
+    }
     public class Bridge {
-        @JavascriptInterface public boolean isConfigured(){return prefs.contains("token")&&prefs.contains("endpoint");}
-        @JavascriptInterface public String getEndpoint(){return prefs.getString("endpoint","");}
-        @JavascriptInterface public String configure(String endpoint,String token){
-            try{Uri u=Uri.parse(endpoint);if(!"https".equals(u.getScheme())||u.getHost()==null||u.getUserInfo()!=null||u.getQuery()!=null||u.getFragment()!=null)throw new Exception();String clean=endpoint.replaceAll("/+$","");if(token.startsWith("sk-")||token.length()<24||token.length()>512)return error("Utilize o código do servidor, não uma chave OpenAI.").toString();prefs.edit().putString("endpoint",clean).putString("token",encrypt(token)).apply();return "{\"saved\":true}";}catch(Exception e){return error("Informe um endereço HTTPS e um código válido.").toString();}
+        @JavascriptInterface public boolean isConfigured(){return ai!=null&&prefs.contains("openai_key");}
+        @JavascriptInterface public void openOpenAISetup(){runOnUiThread(()->setupOpenAI());}
+        @JavascriptInterface public void clearConfig(){
+            DirectAi previous=ai;ai=null;prefs.edit().remove("openai_key").apply();
+            if(previous!=null)network.execute(previous::stop);
         }
-        @JavascriptInterface public void clearConfig(){prefs.edit().clear().apply();}
         @JavascriptInterface public void haptic(){long now=android.os.SystemClock.elapsedRealtime();if(now-lastHaptic<200)return;lastHaptic=now;Vibrator v=(Vibrator)getSystemService(VIBRATOR_SERVICE);if(v!=null&&v.hasVibrator())v.vibrate(VibrationEffect.createOneShot(18,45));}
         @JavascriptInterface public void request(String id,String path,String method,String body){
-            if(!id.matches("[0-9]{1,10}")||!path.matches("/(health|v1/runs(/[a-f0-9-]{36}(/decision)?)?)")||!(method.equals("GET")||method.equals("POST")||method.equals("DELETE"))||body.length()>8192){result(id,error("Requisição inválida"));return;}
-            network.execute(()->{HttpsURLConnection c=null;try{if(!isConfigured())throw new Exception();String endpoint=prefs.getString("endpoint","");String token=decrypt(prefs.getString("token",""));c=(HttpsURLConnection)new URL(endpoint+path).openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(8000);c.setReadTimeout(18000);c.setRequestMethod(method);c.setRequestProperty("Authorization","Bearer "+token);c.setRequestProperty("Content-Type","application/json");if(method.equals("POST")){c.setDoOutput(true);try(OutputStream out=c.getOutputStream()){out.write(body.getBytes(StandardCharsets.UTF_8));}}
-                int status=c.getResponseCode();if(status<200||status>=300){result(id,error(status==401?"Código de conexão inválido.":status==429?"Limite de IA atingido. O jogo continua offline.":"IA indisponível. O jogo continua offline."));return;}try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buffer=new byte[4096];int n,total=0;while((n=in.read(buffer))!=-1){total+=n;if(total>65536)throw new IOException();out.write(buffer,0,n);}result(id,new JSONObject(out.toString("UTF-8")));}
-            }catch(Exception e){result(id,error("Não foi possível conectar. O jogo continua offline."));}finally{if(c!=null)c.disconnect();}});
+            if(!id.matches("[0-9]{1,10}")||!path.matches("/(health|activate|v1/runs(/[a-f0-9-]{36}(/decision)?)?)")||!(method.equals("GET")||method.equals("POST")||method.equals("DELETE"))||body.length()>8192){result(id,error("Requisição inválida"));return;}
+            network.execute(()->{try{DirectAi service=ai;if(service==null){result(id,error(configuring?"Conexão em preparo…":"Conecte a OpenAI no aplicativo."));return;}result(id,service.handle(path,method,new JSONObject(body)));}catch(DirectAi.ApiError e){result(id,error(e.getMessage()));}catch(Exception e){result(id,error("Falha de conexão ou resposta inválida. O jogo continua offline."));}});
         }
     }
     @Override protected void onPause(){if(web!=null){web.evaluateJavascript("window.LumiPause&&window.LumiPause()",null);web.onPause();}super.onPause();}
     @Override protected void onResume(){super.onResume();if(web!=null){web.onResume();web.evaluateJavascript("window.LumiResume&&window.LumiResume()",null);}}
     @Override public void onBackPressed(){if(web!=null)web.evaluateJavascript("window.LumiBack&&window.LumiBack()",null);}
-    @Override protected void onDestroy(){network.shutdownNow();if(web!=null){web.removeJavascriptInterface("Android");web.destroy();web=null;}super.onDestroy();}
+    @Override protected void onDestroy(){DirectAi service=ai;ai=null;if(service!=null)network.execute(service::stop);network.shutdown();if(web!=null){web.removeJavascriptInterface("Android");web.destroy();web=null;}super.onDestroy();}
 }
