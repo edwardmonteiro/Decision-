@@ -60,6 +60,17 @@ public final class FlightAgentTest {
                 return obj("id",sessionId,"status",turnStatus.equals("running")?"in_progress":"idle","environment",obj("id","env_fixture"),"required_actions",actions);
             }
             if(path.equals("/decisions")){
+                JSONArray questions=body.getJSONArray("questions");
+                for(int q=0;q<questions.length();q++){
+                    JSONArray choices=questions.getJSONObject(q).getJSONArray("choices");
+                    check(choices.length()>=2&&choices.length()<=255,"Decisions choice count");
+                    Set<String> unique=new HashSet<>();
+                    for(int i=0;i<choices.length();i++){
+                        JSONObject option=choices.getJSONObject(i);
+                        check(option.length()==2&&!option.has("label")&&option.get("description") instanceof String&&option.get("value") instanceof String,"Choice uses value + description, never label");
+                        check(unique.add(option.getString("value")),"Choice values are unique");
+                    }
+                }
                 String name=body.getJSONArray("questions").getJSONObject(0).getString("name");
                 if(name.equals("intent")&&failProbe)throw new FlightAgent.ApiError(403,"fixture access");
                 if(name.equals("best_fit")){ranks++;if(failRank)throw new FlightAgent.ApiError(429,"fixture limit");}
@@ -142,8 +153,24 @@ public final class FlightAgentTest {
         JSONObject old=new JSONObject(m.get("state"));old.put("started_at",System.currentTimeMillis()-250000);m.put("state",old.toString());FlightAgent restored=new FlightAgent(f,m);
         check(restored.enforceDeadline()&&f.cancels==1&&!restored.snapshot().getBoolean("running"),"Cancel expired task even with no fresh turn");
     }
+    static void errorDiagnostics()throws Exception {
+        String key="sk-proj-fixture-secret-123456789",raw=obj("error",obj("type","invalid_request_error","code","unknown_parameter","param","questions[0].choices[0].label","message","Unknown label "+key+" Bearer another-private-token")).toString();
+        FlightAgent.ApiError e=OpenAiErrors.fromResponse(400,"/decisions",raw,"req_safe",key);
+        check(e.getMessage().contains("Decisions")&&e.getMessage().contains("questions[0].choices[0].label"),"Rejected service and exact parameter visible");
+        check(e.diagnostic.getString("request_id").equals("req_safe")&&e.diagnostic.getString("code").equals("unknown_parameter"),"Request ID and error code preserved");
+        check(!e.diagnostic.toString().contains(key)&&!e.diagnostic.toString().contains("another-private-token"),"Diagnostics remove credentials");
+        check(OpenAiErrors.fromResponse(400,"/live/sessions","<html>secret</html>",null,key).diagnostic.getString("detail").isEmpty(),"Non-JSON response not stored");
+        check(OpenAiErrors.fromResponse(401,"/vaults",obj("error",obj("param",JSONObject.NULL,"code",JSONObject.NULL,"message",key)).toString(),"Bearer hidden",key).diagnostic.getString("param").isEmpty(),"Null and unsafe identifiers excluded");
+        check(OpenAiErrors.shortStatus(400).contains("inválida")&&!OpenAiErrors.shortStatus(400).contains("saldo"),"400 is not an account balance error");
+        java.io.ByteArrayInputStream input=new java.io.ByteArrayInputStream(new byte[20000]);
+        check(OpenAiErrors.readBody(input,16384).length()==16384&&OpenAiErrors.readBody(null,16384).isEmpty(),"Bounded error body and empty stream");
+        Memory store=new Memory();FlightAgent.Transport bad=(p,m,b,i)->{if(p.startsWith("/vaults"))return obj("id","vault_fixture");throw e;};
+        FlightAgent agent=new FlightAgent(bad,store);rejects(agent::test,"Real structured API error propagated");
+        check(agent.snapshot().getJSONObject("api_error").getString("param").endsWith("label")&&!agent.snapshot().getString("decisions_status").contains("saldo"),"Failed probe persists useful diagnostics");
+        FlightAgent recovered=new FlightAgent(new Fake(),store);recovered.test();check(!recovered.snapshot().has("api_error"),"Successful probe clears prior diagnostics");
+    }
     public static void main(String[]args)throws Exception {
-        contracts();completionAndRefinement();incompleteAndUnavailable();recovery();permissionsAndDeadline();
+        contracts();completionAndRefinement();incompleteAndUnavailable();recovery();permissionsAndDeadline();errorDiagnostics();
         System.out.println("PASS: "+checks+" contract and lifecycle checks (offline fixtures).");
     }
 }

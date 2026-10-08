@@ -8,6 +8,11 @@ PROJECT_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 JAVAC=${JAVAC:-javac}
 JAR=${JAR:-jar}
 OUT="$PROJECT_ROOT/build"
+FLIGHTS_VERSION=$(python3 - "$PROJECT_ROOT/app/src/main/AndroidManifest.xml" <<'PY'
+import sys,xml.etree.ElementTree as ET
+print(ET.parse(sys.argv[1]).getroot().attrib['{http://schemas.android.com/apk/res/android}versionName'])
+PY
+)
 mkdir -p "$OUT/classes" "$OUT/dex" "$OUT/generated"
 "$BUILD_TOOLS/aapt2" compile --dir "$PROJECT_ROOT/app/src/main/res" -o "$OUT/resources.zip"
 "$BUILD_TOOLS/aapt2" link -o "$OUT/base.apk" --manifest "$PROJECT_ROOT/app/src/main/AndroidManifest.xml" -I "$ANDROID_JAR" -A "$PROJECT_ROOT/app/src/main/assets" --java "$OUT/generated" "$OUT/resources.zip"
@@ -23,5 +28,5 @@ with zipfile.ZipFile(p/'unsigned.apk','a',zipfile.ZIP_DEFLATED) as z:
  for f in (p/'dex').glob('*.dex'):z.write(f,f.name)
 PY
 "$BUILD_TOOLS/zipalign" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
-"$BUILD_TOOLS/apksigner" sign --ks "$FLIGHTS_KEYSTORE" --ks-pass env:FLIGHTS_STOREPASS --ks-key-alias flights --out "$OUT/Decision-Flights-v0.1.0.apk" "$OUT/aligned.apk"
-"$BUILD_TOOLS/apksigner" verify --verbose "$OUT/Decision-Flights-v0.1.0.apk"
+"$BUILD_TOOLS/apksigner" sign --ks "$FLIGHTS_KEYSTORE" --ks-pass env:FLIGHTS_STOREPASS --ks-key-alias flights --out "$OUT/Decision-Flights-v${FLIGHTS_VERSION}.apk" "$OUT/aligned.apk"
+"$BUILD_TOOLS/apksigner" verify --verbose "$OUT/Decision-Flights-v${FLIGHTS_VERSION}.apk"

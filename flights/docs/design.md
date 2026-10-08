@@ -70,3 +70,20 @@ for downstream states; no fixture fares or seeded results are shipped. 47
 contract/lifecycle checks passed separately. Live flight retrieval, provider
 latency, billing and physical-device installation remain unverified until an
 authorized OpenAI key is connected in the installed app.
+
+
+## Atualização de voz · v0.1.1
+
+A hierarquia principal foi mantida. O novo botão **Buscar por voz** aparece
+abaixo da ação de busca, com ícone laranja e área de toque de 44 px. A folha de
+conversa usa os mesmos tokens: seleção Bossa/Tempo, estado de conexão, legendas
+por interlocutor, silêncio e encerramento. Nenhuma onda decorativa simula áudio.
+A transcrição usa nós de texto, sem interpretar HTML. A voz gerada por IA,
+cobrança na própria conta e encerramento ao sair são informados na folha.
+
+Playwright/Chromium local: 54 verificações passaram. Tela inicial e resultados
+foram verificados em cinco larguras; a folha de voz em 320, 393 e 1280 px, sem
+transbordamento horizontal. Não houve erros JavaScript. Os testes de conexão
+usam ponte nativa e WebRTC simulados somente no teste; nenhum mock é enviado
+no APK. O Browser plugin não está disponível nesta sessão. O áudio e as
+permissões reais do Android ainda dependem de um aparelho com chave autorizada.

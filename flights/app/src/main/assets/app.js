@@ -14,7 +14,7 @@ function api(operation,body={}){
 }
 window.DecisionNativeResult=(id,raw)=>{
   const p=pending.get(id);if(!p)return;pending.delete(id);clearTimeout(p.timer);
-  try{const out=JSON.parse(raw);if(out.state)applyState(out.state);if(out.error&&!out.phase)p.reject(new Error(out.error));else{applyState(out);p.resolve(out);}}catch(e){p.reject(e);}
+  try{const out=JSON.parse(raw);if(out.state)applyState(out.state);if(out.error&&!out.phase)p.reject(new Error(out.error));else if(out.live)p.resolve(out.live);else{applyState(out);p.resolve(out);}}catch(e){p.reject(e);}
 };
 window.DecisionState=raw=>{try{applyState(JSON.parse(raw));}catch{}};
 window.DecisionConnection=message=>{showToast(message);if(native())api('state').catch(()=>{});};
@@ -40,8 +40,9 @@ function recordHistory(s){
 function settings(){
   $('connectionStatus').textContent=state.configured?(state.decisions_status?.includes('real')?'Conexão testada':'Chave salva'):'Não conectada';
   $('decisionsStatus').textContent=state.decisions_status||'Não testado';$('vaultStatus').textContent=state.vault_status||'Não conectado';$('environmentStatus').textContent=state.environment_status==='connected'?'Navegador conectado':state.environment_status||'Criado na busca';
+  $('voiceServiceStatus').textContent=state.voice?.session_id?'Conversa em andamento':state.voice?.status||'Pronto para conversar';
   $('connectButton').textContent=state.configured?'Trocar chave OpenAI':'Conectar OpenAI';$('testButton').hidden=!state.configured;$('disconnectButton').hidden=!state.configured;$('closeSessionButton').hidden=!state.session_id;
-  $('resourceDetails').innerHTML=[['Session',state.session_id],['Environment',state.environment_id],['Vault',state.vault_id],['Modelo do agente',state.configured?state.model:''],['Modelo Decisions',state.configured?state.decision_model:''],['Request Decisions',state.decision_request_id],['Tokens da sessão',state.usage?.total_tokens],['Decisions · comparação',state.ranking?.latency_ms!==undefined?`${state.ranking.latency_ms} ms`:'']].filter(p=>p[1]!==undefined&&p[1]!=='').map(p=>`<dt>${esc(p[0])}</dt><dd>${esc(p[1])}</dd>`).join('');
+  $('resourceDetails').innerHTML=[['Versão do app','0.1.1'],['Última falha',state.api_error?`${state.api_error.service} · HTTP ${state.api_error.status}`:''],['Campo rejeitado',state.api_error?.param],['Código da falha',state.api_error?.code],['Detalhe da falha',state.api_error?.detail],['Request da falha',state.api_error?.request_id],['Session',state.session_id],['Environment',state.environment_id],['Vault',state.vault_id],['Modelo do agente',state.configured?state.model:''],['Modelo Decisions',state.configured?state.decision_model:''],['Request Decisions',state.decision_request_id],['Tokens da sessão',state.usage?.total_tokens],['Decisions · comparação',state.ranking?.latency_ms!==undefined?`${state.ranking.latency_ms} ms`:'']].filter(p=>p[1]!==undefined&&p[1]!=='').map(p=>`<dt>${esc(p[0])}</dt><dd>${esc(p[1])}</dd>`).join('');
 }
 function price(o){try{return new Intl.NumberFormat('pt-BR',{style:'currency',currency:o.currency,maximumFractionDigits:o.price%1===0?0:2}).format(o.price);}catch{return `${o.currency} ${o.price}`;}}
 function scope(o){return {trip_per_person:'viagem completa · por pessoa',trip_all_passengers:'viagem completa · total',one_way_per_person:'somente ida · por pessoa'}[o.price_scope]||'';}
@@ -80,7 +81,7 @@ function applyState(s){
   const approval=(state.approvals||[])[0];
   if(approval){approvalId=approval.request_id;$('approvalOrigin').textContent=approval.origin;$('approvalReason').textContent=approval.allowed?(approval.reason&&approval.reason!=='null'?approval.reason:'Esse acesso permite pesquisar sua viagem.'):'Este domínio está fora da busca pública no Google Flights.';$('approveButton').disabled=!approval.allowed;if(!$('approvalDialog').open)$('approvalDialog').showModal();}
   else{approvalId='';if($('approvalDialog').open)$('approvalDialog').close();}
-  recordHistory(state);schedulePoll();
+  recordHistory(state);schedulePoll();if(window.DecisionVoiceState)window.DecisionVoiceState(state);
 }
 function schedulePoll(){clearTimeout(pollTimer);if(!paused&&native()&&state.running&&!polling&&!submitting)pollTimer=setTimeout(poll,state.phase==='checking'?250:state.streaming?4000:1600);}
 async function poll(){if(polling||paused||!native()||!state.session_id)return;polling=true;try{await api('poll');}catch(e){showToast(e.message);}finally{polling=false;schedulePoll();}}
@@ -94,7 +95,7 @@ async function search(e){
 async function refine(e){e.preventDefault();if(state.running||submitting)return;const text=$('refinementInput').value.trim();if(!text)return;submitting=true;state.phase='starting';state.started_at=Date.now();applyState(state);try{await api('search',{followup:true,text});$('refinementInput').value='';}catch(e){showToast(e.message);}finally{submitting=false;applyState(state);}}
 function openLink(url){if(native())window.Android.openUrl(url);else showToast('Abra o APK para acessar a oferta.');}
 function closeDialogs(){document.querySelectorAll('dialog[open]').forEach(d=>d.close());}
-window.DecisionPause=()=>{paused=true;clearTimeout(pollTimer);};window.DecisionResume=()=>{paused=false;if(native())api('state').then(()=>state.running&&poll()).catch(()=>{});};
+window.DecisionPause=()=>{paused=true;clearTimeout(pollTimer);if(window.DecisionVoiceEnd)window.DecisionVoiceEnd();};window.DecisionResume=()=>{paused=false;if(native())api('state').then(()=>state.running&&poll()).catch(()=>{});};
 window.DecisionBack=()=>{if($('approvalDialog').open){showToast('Permita ou recuse o acesso ao site.');return;}if(document.querySelector('dialog[open]'))closeDialogs();else if(view==='work')setView('home');else $('settingsDialog').showModal();};
 $('searchForm').addEventListener('submit',search);$('refinementForm').addEventListener('submit',refine);
 $('settingsButton').addEventListener('click',()=>$('settingsDialog').showModal());$('inspectButton').addEventListener('click',()=>$('settingsDialog').showModal());
@@ -112,7 +113,7 @@ $('cancelButton').addEventListener('click',async()=>{try{await api('cancel');}ca
 $('retryButton').addEventListener('click',async()=>{const b=$('retryButton');b.disabled=true;try{await api('retry');}catch(e){showToast(e.message);}finally{b.disabled=false;}});
 $('refreshButton').addEventListener('click',()=>poll());
 $('closeSessionButton').addEventListener('click',async()=>{try{await api('close');closeDialogs();setView('home');showToast('Sessão encerrada.');}catch(e){showToast(e.message);}});
-$('disconnectButton').addEventListener('click',async()=>{try{await api('disconnect');state={configured:false,running:false,phase:'idle',offers:[]};applyState(state);closeDialogs();setView('home');showToast('Conexão removida deste celular.');}catch(e){showToast(e.message);}});
+$('disconnectButton').addEventListener('click',async()=>{if(window.DecisionVoiceEnd)window.DecisionVoiceEnd();try{await api('disconnect');state={configured:false,running:false,phase:'idle',offers:[]};applyState(state);closeDialogs();setView('home');showToast('Conexão removida deste celular.');}catch(e){showToast(e.message);}});
 $('platformButton').addEventListener('click',()=>openLink('https://platform.openai.com/agents'));
 async function approval(decision){if(!approvalId)return;const b=$('approveButton');b.disabled=true;try{await api('approve',{request_id:approvalId,decision});}catch(e){showToast(e.message);await poll();}finally{b.disabled=!(state.approvals||[])[0]?.allowed;}}
 $('approveButton').addEventListener('click',()=>approval('approve'));$('denyButton').addEventListener('click',()=>approval('deny'));

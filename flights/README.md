@@ -1,13 +1,13 @@
-# Decision Flights · Android v0.1.0
+# Decision Flights · Android v0.1.1
 
 Buscador minimalista de passagens com navegador hospedado na OpenAI. A interface
 roda no celular; a navegação usa Agents com `computer_use`, um Environment
 `openai_hosted` e Session persistente. Decisions compara as tarifas observadas.
-Sem servidor próprio, JEV, browser-use, anúncios ou tarifas de demonstração.
+GPT Live 1 recebe sua voz e conversa em português brasileiro. Sem servidor próprio, JEV, browser-use, anúncios ou tarifas de demonstração.
 
 ## Instalar e conectar
 
-1. Instale `Decision-Flights-v0.1.0.apk` em Android 9 ou superior.
+1. Instale `Decision-Flights-v0.1.1.apk` em Android 9 ou superior.
 2. Abra a engrenagem e toque **Conectar OpenAI**. Insira sua chave no diálogo
    nativo protegido. A chave não passa pelo JavaScript.
 3. **Conectar e testar** faz uma chamada real a Decisions e cria ou reutiliza um
@@ -23,6 +23,41 @@ O app é destinado ao uso pessoal com a chave da própria conta. A chave fica
 criptografada via Android Keystore, com backups desativados. Distribuição com
 uma chave compartilhada requer um serviço que mantenha essa chave fora do APK.
 
+## Buscar por voz
+
+Toque **Buscar por voz** → **Começar conversa**, permita o microfone e fale
+origem, destino e datas. Bossa é a voz brasileira padrão; Tempo é a alternativa
+masculina. A assistente pede os dados ausentes e deve confirmar a viagem antes
+de chamar a busca. Você também pode pedir ajustes, andamento ou interrupção.
+A busca continua no mesmo navegador OpenAI usado pela interface de texto.
+
+O áudio trafega por WebRTC. O código nativo troca o SDP em
+`POST /v1/live/sessions`; a chave nunca entra no JavaScript. A sessão usa
+Responses delegation com quatro funções restritas: `search_flights`,
+`refine_search`, `get_search_status` e `cancel_search`. Resultados de função
+são enviados em `response.item.create`, seguidos de `response.create` somente
+quando todas as chamadas da resposta estiverem concluídas. IDs de chamada
+impedem a repetição de ações dentro da conversa.
+
+As legendas ficam apenas em memória. O app informa que a voz é gerada por IA
+e envia `store: false`; isso não altera a política de retenção da API.
+É possível silenciar e reativar o microfone. Encerrar envia `session.close`
+e recebe `session.closed` antes de liberar a conexão; ao sair do aplicativo,
+o microfone é liberado imediatamente e o nativo solicita hangup. A sessão tem
+limite de quatro minutos, também verificado pelo código nativo. IDs pendentes
+permitem recuperar o encerramento depois de uma queda ou reinício.
+
+A conta precisa ter acesso a `gpt-live-1`. Voz e backend têm cobrança de API.
+
+## Correção de Decisions nesta atualização
+
+O teste de conexão e a comparação enviavam `label` nas opções de escolha.
+A API exige `{value, description}`. Ambos os caminhos foram corrigidos e os
+fixtures agora rejeitam o contrato antigo. Um HTTP 400 é mostrado como
+requisição inválida; Configurações exibe serviço, campo, código e request ID
+quando a OpenAI os fornece. Chaves e headers de autorização são removidos dos
+diagnósticos; nenhuma requisição completa é armazenada.
+
 ## Integrações efetivas
 
 | Recurso | Uso |
@@ -31,6 +66,7 @@ uma chave compartilhada requer um serviço que mantenha essa chave fora do APK.
 | Environment | Desktop/navegador `openai_hosted`; rede restrita aos hosts necessários ao Google Flights |
 | Vault | Vault real vinculado à sessão, inicialmente sem segredos: a busca pública não precisa de login |
 | Decisions | `gpt-6-luna`, intenção no teste de conexão e escolha entre até seis ofertas observadas |
+| GPT Live 1 | WebRTC direto com a OpenAI, vozes brasileiras Bossa e Tempo; `gpt-6-luna` interpreta pedidos e chama funções de busca |
 | Streaming | Eventos SSE com atividade e captura de tela; consultas recuperam eventos perdidos |
 
 As ofertas preservam moeda, base do preço, fonte, duração da ida, escalas e
@@ -81,12 +117,15 @@ CHROMIUM_EXECUTABLE_PATH=/path/to/chromium node flights/tests/ui-test.cjs
 O alias da chave de assinatura é `flights`. Guarde o backup privado da assinatura
 para instalar futuras versões como atualização. Nunca envie esse backup ao git.
 
-Validação realizada: compilação Android, 47 verificações de contrato/ciclo de
-vida com fixtures e 31 verificações da interface em Chromium local, em larguras
-320, 360, 393, 540 e 1280 px. Os testes de contrato não são chamadas reais.
-Não havia chave de API disponível ao desenvolvimento; a busca real, latência,
-custo e instalação em aparelho físico ainda precisam ser verificados na conta
-do usuário. O teste de conexão no APK usa os serviços reais.
+Validação realizada: compilação e assinatura Android; 87 verificações de
+contrato/ciclo de vida e 42 de GPT Live com fixtures; 54 verificações da
+interface em Chromium local, com larguras 320, 360, 393, 540 e 1280 px.
+Inclui permissão negada, transcrição segura, silêncio/reativação, despacho de
+função duplicada, continuação do Responses, fechamento e saída durante handshake.
+Os testes não são chamadas reais. Não havia chave de API disponível ao
+desenvolvimento. Busca real, áudio em aparelho físico, latência e cobrança
+precisam ser verificados na conta do usuário. O teste de conexão do APK usa
+os serviços reais.
 
 [Design e verificação visual](docs/design.md).
 
@@ -98,6 +137,10 @@ do usuário. O teste de conexão no APK usa os serviços reais.
 - [Environment](https://developers.openai.com/api/docs/guides/agents-api/environments/openai-hosted)
 - [Vaults](https://developers.openai.com/api/docs/guides/agents-api/tools/vaults)
 - [Decisions](https://developers.openai.com/api/docs/guides/decisions)
+- [GPT Live 1](https://developers.openai.com/api/docs/models/gpt-live-1)
+- [Live por WebRTC](https://developers.openai.com/api/docs/guides/voice-webrtc?api=live)
+- [Delegação e funções de Live](https://developers.openai.com/api/docs/guides/live-delegation)
+- [Vozes brasileiras e ciclo de vida](https://developers.openai.com/api/docs/guides/live-conversations)
 
 Este módulo é separado do jogo LUMI (`com.edward.flights`) e não substitui os
 arquivos nem os dados do jogo existente.

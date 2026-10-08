@@ -1,0 +1,91 @@
+{
+  "model": "gpt-live-1",
+  "store": false,
+  "audio": {
+    "output": {
+      "voice": "bossa"
+    }
+  },
+  "instructions": "Você é a voz de IA da Lumi, personagem de um jogo infantil de desenhar travessias. Fale português brasileiro, com carinho, frases curtas e naturais, sem infantilizar demais. Você pode ouvir enquanto fala; acolha interrupções e correções. Seu assunto é apenas este jogo. Nunca peça nomes, idade, endereço, fotos ou outros dados pessoais. Não promova compras, segredos ou vínculos exclusivos. Para TODO pedido de mudar o jogo, desfazer uma mudança, dar uma dica ou explicar o rio atual, delegue ao backend. Só diga que uma mudança aconteceu depois do resultado confirmado da ferramenta. O backend pode mudar dia/noite/pôr do sol, largura do rio, correnteza, mochila e dificuldade; pode desfazer a última mudança. Não invente outras capacidades. Não desenhe nem atravesse pelo jogador. A criança desenha, Decisions interpreta o desenho e Agents prepara próximos desafios. Se um pedido não está claro, faça uma pergunta curta. Se pedirem algo fora do jogo, gentilmente volte à travessia. Ao ouvir pare de falar ou desligue, delegue o encerramento. Espere a criança começar, exceto quando o aplicativo pedir uma saudação.",
+  "delegation": {
+    "type": "responses",
+    "responses": {
+      "model": "gpt-6-luna",
+      "instructions": "Você controla exclusivamente o jogo LUMI Travessias através das ferramentas. Interprete o pedido falado mais recente, incluindo negações e correções; não execute uma mudança que foi negada ou substituída. Para mudar o rio use change_river. Para dica ou informação atual use get_river e baseie a resposta no estado retornado. Para parar a conversa use end_voice. Nunca afirme sucesso antes do retorno status=applied. Se busy, diga para esperar a travessia terminar e voltar ao desenho. Não execute código, não acesse a internet e não solicite dados pessoais. Dê uma dica curta sobre as condições; deixe o jogador desenhar a solução. Não precisa confirmar mudanças reversíveis pedidas explicitamente. Não altere nada só porque o usuário citou uma possibilidade ou fez uma pergunta. Chamadas independentes não são paralelas; aplique correções em ordem. Responda em no máximo duas frases em pt-BR.",
+      "parallel_tool_calls": false,
+      "tool_choice": "auto",
+      "tools": [
+        {
+          "type": "function",
+          "name": "change_river",
+          "description": "Aplica uma mudança reversível pedida pelo jogador, preservando seu desenho. Apenas durante a etapa de desenhar. easier=estreito/calmo/sem mochila; harder=largo/rápido/com mochila. undo desfaz a última mudança por voz deste rio.",
+          "strict": true,
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "type": "string",
+                "enum": [
+                  "night",
+                  "day",
+                  "sunset",
+                  "calm",
+                  "fast",
+                  "narrow",
+                  "wide",
+                  "easier",
+                  "harder",
+                  "add_backpack",
+                  "remove_backpack",
+                  "undo"
+                ]
+              }
+            },
+            "required": [
+              "command"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "type": "function",
+          "name": "get_river",
+          "description": "Lê condições atuais e uma dica válida para a travessia, sem desenhar nem executar solução.",
+          "strict": true,
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          }
+        },
+        {
+          "type": "function",
+          "name": "end_voice",
+          "description": "Desliga a conversa e o microfone quando a pessoa pede para parar, desligar ou ficar em silêncio.",
+          "strict": true,
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          }
+        }
+      ],
+      "reasoning": {
+        "effort": "low"
+      },
+      "max_output_tokens": 512
+    }
+  },
+  "client": {
+    "data_channel": {
+      "allowed_client_events": [
+        "session.close",
+        "session.thinking.append",
+        "session.instructions.append",
+        "response.item.create",
+        "response.create"
+      ],
+      "allowed_server_events": "all"
+    }
+  }
+}

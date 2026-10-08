@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -33,17 +34,21 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private final ExecutorService control=Executors.newSingleThreadExecutor();
     private final ExecutorService streamExecutor=Executors.newSingleThreadExecutor();
+    private final ExecutorService voiceControl=Executors.newSingleThreadExecutor();
     private final ScheduledExecutorService watchdog=Executors.newSingleThreadScheduledExecutor();
     private volatile FlightAgent ai;
+    private volatile VoiceAgent voice;
     private volatile String apiKey="";
     private volatile HttpsURLConnection liveConnection;
-    private volatile boolean destroyed,configuring;
+    private volatile boolean destroyed,configuring,foreground;
+    private PermissionRequest microphonePermission;
+    private static final int MICROPHONE_REQUEST=41;
     private final AtomicBoolean streamRunning=new AtomicBoolean();
     private final AtomicBoolean deadlineQueued=new AtomicBoolean();
     private static final String ORIGIN="https://decision.local";
     @Override public void onCreate(Bundle saved){
         super.onCreate(saved);prefs=getSharedPreferences("decision_flights",MODE_PRIVATE);
-        if(prefs.contains("api_key"))try{apiKey=decrypt(prefs.getString("api_key",""));ai=createAgent(apiKey);}catch(Exception e){prefs.edit().remove("api_key").apply();}
+        if(prefs.contains("api_key"))try{apiKey=decrypt(prefs.getString("api_key",""));ai=createAgent(apiKey);voice=createVoice(apiKey);}catch(Exception e){prefs.edit().remove("api_key").apply();}
         getWindow().setStatusBarColor(Color.WHITE);getWindow().setNavigationBarColor(Color.WHITE);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
@@ -55,17 +60,29 @@ public class MainActivity extends Activity {
         web=new WebView(this);web.setBackgroundColor(Color.WHITE);WebSettings s=web.getSettings();
         s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setSupportZoom(false);WebView.setWebContentsDebuggingEnabled(false);
+        s.setMediaPlaybackRequiresUserGesture(false);
+        web.setWebChromeClient(new WebChromeClient(){
+            @Override public void onPermissionRequest(PermissionRequest request){runOnUiThread(()->{
+                String[] resources=request.getResources();
+                if(destroyed||!foreground||ai==null||!ORIGIN.equals(request.getOrigin().toString().replaceAll("/$",""))||resources.length!=1||!PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resources[0])){request.deny();return;}
+                if(checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED){request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});return;}
+                if(microphonePermission!=null){request.deny();return;}
+                microphonePermission=request;requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO},MICROPHONE_REQUEST);
+            });}
+            @Override public void onPermissionRequestCanceled(PermissionRequest request){runOnUiThread(()->{if(microphonePermission==request)microphonePermission=null;});}
+        });
         web.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){return true;}
             @Override public WebResourceResponse shouldInterceptRequest(WebView v,WebResourceRequest r){
                 Uri u=r.getUrl();String p=u.getPath();
-                if(!"https".equals(u.getScheme())||!"decision.local".equals(u.getHost())||!("/index.html".equals(p)||"/app.css".equals(p)||"/app.js".equals(p)))return new WebResourceResponse("text/plain","UTF-8",403,"Blocked",null,new ByteArrayInputStream(new byte[0]));
+                if(!"https".equals(u.getScheme())||!"decision.local".equals(u.getHost())||!("/index.html".equals(p)||"/app.css".equals(p)||"/app.js".equals(p)||"/voice.js".equals(p)))return new WebResourceResponse("text/plain","UTF-8",403,"Blocked",null,new ByteArrayInputStream(new byte[0]));
                 try{return new WebResourceResponse(p.endsWith(".js")?"application/javascript":p.endsWith(".css")?"text/css":"text/html","UTF-8",getAssets().open(p.substring(1)));}catch(IOException e){return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));}
             }
             @Override public void onPageFinished(WebView v,String url){push();}
         });
         web.addJavascriptInterface(new Bridge(),"Android");root.addView(web,new FrameLayout.LayoutParams(-1,-1));setContentView(root);root.requestApplyInsets();web.loadUrl(ORIGIN+"/index.html");
         watchdog.scheduleWithFixedDelay(()->{
+            VoiceAgent v=voice;if(!destroyed&&v!=null&&v.expired()){js("DecisionVoiceEnd","");closeVoice();}
             if(destroyed||!deadlineQueued.compareAndSet(false,true))return;
             try{control.execute(()->{try{FlightAgent a=ai;if(a!=null&&a.enforceDeadline()){stopStream();push();}}catch(Exception ignored){/* Retry the guard on the next tick. */}finally{deadlineQueued.set(false);}});}
             catch(RejectedExecutionException ignored){deadlineQueued.set(false);}
@@ -78,18 +95,16 @@ public class MainActivity extends Activity {
     }
     private String encrypt(String text)throws Exception{Cipher c=Cipher.getInstance("AES/GCM/NoPadding");c.init(Cipher.ENCRYPT_MODE,encryptionKey());return Base64.encodeToString(c.getIV(),Base64.NO_WRAP)+":"+Base64.encodeToString(c.doFinal(text.getBytes(StandardCharsets.UTF_8)),Base64.NO_WRAP);}
     private String decrypt(String text)throws Exception{String[] p=text.split(":",2);Cipher c=Cipher.getInstance("AES/GCM/NoPadding");c.init(Cipher.DECRYPT_MODE,encryptionKey(),new GCMParameterSpec(128,Base64.decode(p[0],Base64.NO_WRAP)));return new String(c.doFinal(Base64.decode(p[1],Base64.NO_WRAP)),StandardCharsets.UTF_8);}
-    private FlightAgent createAgent(String key) throws Exception {
+    private FlightAgent.Store accountStore(String key) throws Exception {
         byte[] digest=MessageDigest.getInstance("SHA-256").digest(key.getBytes(StandardCharsets.UTF_8));StringBuilder h=new StringBuilder();for(byte b:digest)h.append(String.format("%02x",b));String prefix="oa_"+h.substring(0,16)+"_";
-        FlightAgent.Store store=new FlightAgent.Store(){public String get(String k){return prefs.getString(prefix+k,"");}public void put(String k,String v){prefs.edit().putString(prefix+k,v).commit();}};
-        return new FlightAgent((p,m,b,i)->call(key,p,m,b,i),store);
+        return new FlightAgent.Store(){public String get(String k){return prefs.getString(prefix+k,"");}public void put(String k,String v){prefs.edit().putString(prefix+k,v).commit();}};
     }
+    private FlightAgent createAgent(String key)throws Exception{return new FlightAgent((p,m,b,i)->call(key,p,m,b,i),accountStore(key));}
+    private VoiceAgent createVoice(String key)throws Exception{return new VoiceAgent((p,m,b,i)->call(key,p,m,b,i),accountStore(key));}
     private HttpsURLConnection connection(String key,String path) throws Exception {
-        if(!path.matches("/(decisions|vaults(/[A-Za-z0-9_-]+)?|agents/(sessions|environments)(/[A-Za-z0-9_-]+)?(/(events|turns|items))?)(\\?[A-Za-z0-9_=&-]+)?"))throw new IOException("Invalid API path");
+        if(!path.matches("/(decisions|live/sessions(/[A-Za-z0-9_-]+/hangup)?|vaults(/[A-Za-z0-9_-]+)?|agents/(sessions|environments)(/[A-Za-z0-9_-]+)?(/(events|turns|items))?)(\\?[A-Za-z0-9_=&-]+)?"))throw new IOException("Invalid API path");
         HttpsURLConnection c=(HttpsURLConnection)new URL("https://api.openai.com/v1"+path).openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(15000);c.setReadTimeout(45000);
         c.setRequestProperty("Authorization","Bearer "+key);c.setRequestProperty("OpenAI-Beta","agents=v1");return c;
-    }
-    private String errorMessage(int status){
-        return status==401?"Chave OpenAI inválida (401).":status==403?"Sua chave não tem acesso ao serviço (403).":status==404?"Recurso ou modelo indisponível (404).":status==429?"Limite de uso ou saldo OpenAI (429).":status==400?"A OpenAI rejeitou a configuração (400).":"Falha da OpenAI (HTTP "+status+").";
     }
     private JSONObject call(String key,String path,String method,JSONObject body,String idempotencyKey)throws Exception {
         HttpsURLConnection c=connection(key,path);
@@ -97,7 +112,10 @@ public class MainActivity extends Activity {
             c.setRequestMethod(method);c.setRequestProperty("Content-Type","application/json");
             if(idempotencyKey!=null)c.setRequestProperty("Idempotency-Key",idempotencyKey);
             if(body!=null){c.setDoOutput(true);try(OutputStream out=c.getOutputStream()){out.write(body.toString().getBytes(StandardCharsets.UTF_8));}}
-            int status=c.getResponseCode();if(status<200||status>=300)throw new FlightAgent.ApiError(status,errorMessage(status));
+            int status=c.getResponseCode();if(status<200||status>=300){
+                String raw="";try{raw=OpenAiErrors.readBody(c.getErrorStream(),16384);}catch(Exception ignored){}
+                throw OpenAiErrors.fromResponse(status,path,raw,c.getHeaderField("x-request-id"),key);
+            }
             try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
                 byte[] buffer=new byte[8192];int n,total=0;while((n=in.read(buffer))!=-1){total+=n;if(total>12000000)throw new IOException("Provider response too large");out.write(buffer,0,n);}
                 JSONObject response=out.size()==0?new JSONObject():new JSONObject(out.toString("UTF-8"));response.remove("_request_id");
@@ -114,7 +132,8 @@ public class MainActivity extends Activity {
         return "Não foi possível validar a resposta. Consulte a sessão antes de repetir a busca.";
     }
     private void js(String function,String argument){runOnUiThread(()->{if(web!=null&&!destroyed&&!isFinishing())web.evaluateJavascript("window."+function+"&&window."+function+"("+JSONObject.quote(argument)+")",null);});}
-    private void push(){FlightAgent a=ai;if(a!=null)try{js("DecisionState",a.snapshot().toString());}catch(Exception ignored){}}
+    private JSONObject withVoice(JSONObject value)throws Exception{VoiceAgent v=voice;if(v!=null)value.put("voice",v.snapshot());return value;}
+    private void push(){FlightAgent a=ai;if(a!=null)try{js("DecisionState",withVoice(a.snapshot()).toString());}catch(Exception ignored){}}
     private void result(String id,JSONObject response){runOnUiThread(()->{if(web!=null&&!destroyed)web.evaluateJavascript("window.DecisionNativeResult("+JSONObject.quote(id)+","+JSONObject.quote(response.toString())+")",null);});}
     private void startStream(){
         FlightAgent a=ai;if(a==null)return;String id=a.streamSession();if(id.isEmpty()||!streamRunning.compareAndSet(false,true))return;
@@ -141,6 +160,7 @@ public class MainActivity extends Activity {
     }
     private void stopStream(){HttpsURLConnection c=liveConnection;if(c!=null)c.disconnect();}
     private void connect(){
+        js("DecisionVoiceEnd","");closeVoice();
         if(configuring)return;LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);int pad=(int)(22*getResources().getDisplayMetrics().density);panel.setPadding(pad,pad,pad,pad);
         TextView info=new TextView(this);info.setText("Conecte sua chave OpenAI. Ela fica criptografada neste celular. O navegador e as sessões executam na sua conta OpenAI, com cobrança de API. O teste verifica Decisions e conecta um Vault.");info.setTextSize(15);panel.addView(info);
         EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Chave de API OpenAI");input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);input.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);panel.addView(input);
@@ -149,7 +169,7 @@ public class MainActivity extends Activity {
             String key=input.getText().toString().trim();if(!key.startsWith("sk-")||key.length()<24||key.length()>1024||key.matches(".*\\s.*")){input.setError("Confira sua chave OpenAI.");return;}
             input.setText("");d.dismiss();configuring=true;js("DecisionConnection","Conectando à OpenAI…");
             control.execute(()->{
-                try{if(ai!=null)ai.close();stopStream();prefs.edit().putString("api_key",encrypt(key)).commit();apiKey=key;ai=createAgent(key);ai.test();js("DecisionConnection","Conexão testada. Você pode iniciar a busca.");}
+                try{VoiceAgent previous=voice;if(previous!=null)previous.close();if(ai!=null)ai.close();stopStream();prefs.edit().putString("api_key",encrypt(key)).commit();apiKey=key;ai=createAgent(key);voice=createVoice(key);ai.test();js("DecisionConnection","Conexão testada. Você pode iniciar a busca.");}
                 catch(Exception e){js("DecisionConnection",safeError(e));}finally{configuring=false;push();}
             });
         });});d.setOnDismissListener(v->input.setText(""));d.show();
@@ -162,19 +182,36 @@ public class MainActivity extends Activity {
             runOnUiThread(()->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(Exception e){js("DecisionConnection","Não há navegador disponível para abrir o link.");}});
         }
         @JavascriptInterface public void request(String id,String operation,String raw){
-            if(!id.matches("[0-9]{1,10}")||!operation.matches("state|test|search|poll|approve|cancel|close|retry|disconnect")||raw.length()>16000)return;
+            if(!id.matches("[0-9]{1,10}")||!operation.matches("state|test|search|poll|approve|cancel|close|retry|disconnect|live_start|live_close|live_finish|live_action")||raw.length()>(operation.equals("live_start")?65536:16000))return;
+            if(operation.equals("live_start")||operation.equals("live_close")||operation.equals("live_finish")){
+                voiceControl.execute(()->{
+                    try{
+                        VoiceAgent v=voice;FlightAgent a=ai;if(v==null||a==null||configuring)throw new FlightAgent.ApiError(401,"Conecte a OpenAI para conversar por voz.");
+                        JSONObject body=new JSONObject(raw),answer;
+                        if(operation.equals("live_start")){if(!foreground||destroyed)throw new FlightAgent.ApiError(409,"Abra o aplicativo para iniciar a voz.");answer=v.start(body,a.snapshot());}
+                        else if(operation.equals("live_finish"))answer=v.finished(body);else answer=v.closeExpected(body);
+                        result(id,new JSONObject().put("live",answer));push();
+                    }catch(Exception e){try{JSONObject out=new JSONObject().put("error",safeError(e));if(ai!=null)out.put("state",withVoice(ai.snapshot()));result(id,out);}catch(Exception ignored){}}
+                });return;
+            }
             control.execute(()->{
                 try{
                     FlightAgent a=ai;if(a==null)throw new FlightAgent.ApiError(401,configuring?"Conexão em preparo…":"Conecte a OpenAI nas configurações.");
-                    if(operation.equals("disconnect")){a.close();stopStream();ai=null;apiKey="";prefs.edit().remove("api_key").commit();result(id,new JSONObject().put("configured",false));return;}
-                    JSONObject answer=a.handle(operation,new JSONObject(raw));result(id,answer);
+                    if(operation.equals("disconnect")){if(voice!=null)voice.close();a.close();stopStream();ai=null;voice=null;apiKey="";prefs.edit().remove("api_key").commit();result(id,new JSONObject().put("configured",false));return;}
+                    if(operation.equals("live_action")){
+                        VoiceAgent v=voice;if(v==null)throw new FlightAgent.ApiError(409,"Conversa por voz encerrada.");
+                        JSONObject answer=v.action(a,new JSONObject(raw));result(id,new JSONObject().put("live",answer.getJSONObject("result")).put("state",withVoice(answer.getJSONObject("state"))));startStream();return;
+                    }
+                    JSONObject answer=a.handle(operation,new JSONObject(raw));result(id,withVoice(answer));
                     if(operation.equals("cancel")||operation.equals("close"))stopStream();else startStream();
-                }catch(Exception e){try{JSONObject out=new JSONObject().put("error",safeError(e));if(ai!=null)out.put("state",ai.snapshot());result(id,out);}catch(Exception ignored){}}
+                }catch(Exception e){try{JSONObject out=new JSONObject().put("error",safeError(e));if(ai!=null)out.put("state",withVoice(ai.snapshot()));result(id,out);}catch(Exception ignored){}}
             });
         }
     }
-    @Override protected void onPause(){super.onPause();if(web!=null){web.evaluateJavascript("window.DecisionPause&&window.DecisionPause()",null);web.onPause();}}
-    @Override protected void onResume(){super.onResume();if(web!=null){web.onResume();web.evaluateJavascript("window.DecisionResume&&window.DecisionResume()",null);}}
+    private void closeVoice(){VoiceAgent v=voice;if(v!=null&&!voiceControl.isShutdown())voiceControl.execute(()->{try{v.close();push();}catch(Exception ignored){/* Persisted ID permits closure recovery on resume. */}});}
+    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants){super.onRequestPermissionsResult(request,permissions,grants);if(request==MICROPHONE_REQUEST){PermissionRequest p=microphonePermission;microphonePermission=null;if(p!=null){if(!destroyed&&foreground&&grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED)p.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});else p.deny();}}}
+    @Override protected void onPause(){foreground=false;super.onPause();if(web!=null){web.evaluateJavascript("window.DecisionPause&&window.DecisionPause()",null);web.onPause();}closeVoice();}
+    @Override protected void onResume(){foreground=true;super.onResume();closeVoice();if(web!=null){web.onResume();web.evaluateJavascript("window.DecisionResume&&window.DecisionResume()",null);}}
     @Override public void onBackPressed(){if(web!=null)web.evaluateJavascript("window.DecisionBack&&window.DecisionBack()",null);}
-    @Override protected void onDestroy(){destroyed=true;watchdog.shutdownNow();stopStream();control.shutdown();streamExecutor.shutdownNow();if(web!=null){web.removeJavascriptInterface("Android");web.destroy();web=null;}super.onDestroy();}
+    @Override protected void onDestroy(){destroyed=true;if(microphonePermission!=null){microphonePermission.deny();microphonePermission=null;}closeVoice();voiceControl.shutdown();watchdog.shutdownNow();stopStream();control.shutdown();streamExecutor.shutdownNow();if(web!=null){web.removeJavascriptInterface("Android");web.destroy();web=null;}super.onDestroy();}
 }

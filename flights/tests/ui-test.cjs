@@ -28,9 +28,35 @@ function check(value,message){assert.ok(value,message);checks++;}
  const p=await browser.newPage({viewport:{width:393,height:830}});p.on('pageerror',e=>errors.push(e.message));
  await p.addInitScript(()=>{
   window.calls=[];window.opened=[];
+  window.peers=[];window.microphones=[];window.liveCounter=0;
+  Object.defineProperty(navigator,'mediaDevices',{value:{getUserMedia:async()=>{
+   if(window.denyMic)throw new DOMException('permission fixture','NotAllowedError');
+   const track={enabled:true,stopped:false,stop(){this.stopped=true;}};window.microphones.push(track);
+   return {getTracks:()=>[track],getAudioTracks:()=>[track]};
+  }}});
+  window.RTCPeerConnection=class extends EventTarget {
+   constructor(){super();this.iceGatheringState='complete';this.connectionState='connected';window.peers.push(this);}
+   addTrack(){} async createOffer(){return {type:'offer',sdp:'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n'};}
+   async setLocalDescription(offer){this.localDescription=offer;}
+   async setRemoteDescription(){this.emit({type:'session.started',session:{id:window.lastLiveID}});}
+   createDataChannel(label){this.label=label;const channel=new EventTarget();channel.readyState='open';channel.sent=[];
+    channel.send=raw=>{const event=JSON.parse(raw);channel.sent.push(event);if(event.type==='session.close')setTimeout(()=>this.emit({type:'session.closed',usage:{seconds:12.5}}),20);};
+    channel.close=()=>{channel.readyState='closed';channel.dispatchEvent(new Event('close'));};this.channel=channel;return channel;
+   }
+   emit(event){this.channel.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(event)}));}
+   close(){this.connectionState='closed';}
+  };
   window.fixture={configured:true,model:'gpt-6-astra',decision_model:'gpt-6-luna',decisions_status:'Disponível · chamada real',vault_status:'Vinculado · sem credenciais externas',vault_id:'vault_fixture',phase:'idle',running:false,offers:[]};
   window.Android={isConfigured:()=>true,openOpenAISetup:()=>{},openUrl:u=>window.opened.push(u),request:(id,operation,raw)=>{
    const body=JSON.parse(raw);window.calls.push({operation,body});
+   if(operation==='live_start'){window.lastLiveID='live_fixture_'+(++window.liveCounter);const answer={live:{session:{id:window.lastLiveID},transport:{type:'webrtc',sdp:'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n'}}};setTimeout(()=>window.DecisionNativeResult(id,JSON.stringify(answer)),window.delayLive||0);return;}
+   if(operation==='live_finish'||operation==='live_close'){setTimeout(()=>window.DecisionNativeResult(id,JSON.stringify({live:{status:'Encerrada'}})),0);return;}
+   if(operation==='live_action'){
+    if(body.name==='search_flights')window.fixture={...window.fixture,running:true,phase:'browsing',offers:[],session_id:'ses_fixture',environment_id:'env_fixture',trip:body.arguments,route:body.arguments.from+' → '+body.arguments.to,started_at:Date.now(),activities:[],approvals:[]};
+    if(body.name==='refine_search')window.fixture={...window.fixture,running:true,phase:'browsing'};
+    if(body.name==='cancel_search')window.fixture={...window.fixture,running:false,phase:'cancelled'};
+    const answer={live:{phase:window.fixture.phase,running:window.fixture.running,summary:window.fixture.summary||'',offers:[]},state:window.fixture};setTimeout(()=>window.DecisionNativeResult(id,JSON.stringify(answer)),30);return;
+   }
    if(operation==='search')window.fixture={...window.fixture,phase:'browsing',running:true,offers:[],session_id:'ses_fixture',environment_id:'env_fixture',started_at:Date.now(),trip:body.followup?window.fixture.trip:body,route:'São Paulo → Lisboa',activities:[{title:'Conferindo datas'}],approvals:[]};
    if(operation==='approve')window.fixture={...window.fixture,phase:'browsing',approvals:[]};
    if(operation==='cancel')window.fixture={...window.fixture,phase:'cancelled',running:false,error:'Busca interrompida.',completed_at:Date.now()};
@@ -61,6 +87,43 @@ function check(value,message){assert.ok(value,message);checks++;}
  await p.locator('#cancelButton').click();await p.waitForFunction(()=>document.querySelector('#messageArea').hidden===false);check((await p.locator('#messageTitle').textContent())==='Busca interrompida','Cancellation state');
  await p.locator('.activity-log summary').click();await p.locator('#inspectButton').click();await p.locator('#closeSessionButton').click();await p.waitForFunction(()=>document.querySelector('#homeView').hidden===false);
  check(await p.locator('#refinementForm').isHidden(),'Close clears stale session');
+ await p.locator('#voiceButton').click();check(await p.locator('#voiceDialog').isVisible(),'Voice entry opens Brazilian conversation');
+ check(await p.locator('#voiceChoice').inputValue()==='bossa','Brazilian Bossa default');
+ await p.evaluate(()=>window.denyMic=true);await p.locator('#voiceStart').click();await p.waitForFunction(()=>document.querySelector('#voiceStatus').textContent.includes('Permita'));
+ check(await p.evaluate(()=>!window.calls.some(c=>c.operation==='live_start')),'Permission denial creates no billed voice session');
+ await p.evaluate(()=>window.denyMic=false);await p.locator('#voiceStart').click();await p.waitForFunction(()=>!document.querySelector('#voiceControls').hidden);
+ check(await p.locator('#voiceStart').isHidden()&&await p.locator('#voiceChoice').isDisabled(),'Connected voice locks startup voice');
+ check(await p.evaluate(()=>window.peers.at(-1).label==='oai-events'&&window.calls.find(c=>c.operation==='live_start').body.voice==='bossa'),'SDP and Brazilian voice sent through native bridge');
+ check(await p.evaluate(()=>!window.peers.at(-1).channel.sent.some(e=>e.type==='session.start')),'WebRTC never sends a second session.start');
+ await p.evaluate(()=>{const peer=window.peers.at(-1);peer.emit({type:'session.input_transcript.delta',delta:'Quero ir ',start_ms:100,end_ms:400});peer.emit({type:'session.input_transcript.delta',delta:'para Lisboa.',start_ms:400,end_ms:700});peer.emit({type:'session.output_transcript.delta',delta:'Qual é a data? <img src=x>',start_ms:800,end_ms:1200});});
+ check((await p.locator('[data-speaker="user"]').textContent()).includes('Quero ir para Lisboa.'),'Transcript preserves fragment spacing');
+ check(await p.locator('#voiceTranscript img').count()===0,'Voice captions cannot insert HTML');
+ await p.locator('#voiceMute').click();check(await p.evaluate(()=>!window.microphones.at(-1).enabled&&window.peers.at(-1).channel.sent.at(-1).type==='session.input_audio.mute'),'Mute disables actual microphone track');
+ await p.locator('#voiceMute').click();check(await p.evaluate(()=>window.microphones.at(-1).enabled),'Unmute enables capture');
+ for(const width of [320,393,1280]){await p.setViewportSize({width,height:830});check(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Voice sheet fits '+width);}
+ await p.setViewportSize({width:393,height:830});await p.screenshot({path:root+'/voice-fixture.png',fullPage:true});
+ await p.evaluate(()=>{
+  const peer=window.peers.at(-1),delegation_id='delegation_fixture',t=window.calls.find(c=>c.operation==='live_start').body.trip;
+  const call={type:'response.event',delegation_id,event:{type:'response.output_item.done',item:{type:'function_call',call_id:'call_voice_search',name:'search_flights',arguments:JSON.stringify(t)}}};
+  peer.emit({type:'response.event',delegation_id,event:{type:'response.created',response:{id:'resp_fixture'}}});peer.emit(call);peer.emit(call);
+  peer.emit({type:'response.event',delegation_id,event:{type:'response.completed',response:{id:'resp_fixture',output:[]}}});
+ });
+ await p.waitForFunction(()=>window.peers.at(-1).channel.sent.some(e=>e.type==='response.create'));
+ check(await p.evaluate(()=>window.calls.filter(c=>c.operation==='live_action'&&c.body.call_id==='call_voice_search').length===1),'Duplicate tool event launches one native flight action');
+ check(await p.evaluate(()=>{const sent=window.peers.at(-1).channel.sent;return sent.filter(e=>e.type==='response.create').length===1&&sent.findIndex(e=>e.type==='response.item.create')<sent.findIndex(e=>e.type==='response.create');}),'Responses resumes once, after completed tool output');
+ check(await p.locator('#workView').isVisible(),'Voice search shows hosted search progress');
+ await p.locator('#voiceStop').click();await p.waitForFunction(()=>!document.querySelector('#voiceStart').hidden);
+ check(await p.evaluate(()=>window.microphones.at(-1).stopped&&window.peers.at(-1).connectionState==='closed'),'Graceful close releases capture and WebRTC');
+ check(await p.evaluate(()=>window.calls.some(c=>c.operation==='live_finish'&&c.body.seconds===12.5)),'Final usage uses terminal session event');
+ await p.locator('#voiceChoice').selectOption('tempo');await p.locator('#voiceStart').click();await p.waitForFunction(()=>!document.querySelector('#voiceControls').hidden);
+ check(await p.evaluate(()=>window.calls.filter(c=>c.operation==='live_start').at(-1).body.voice==='tempo'),'Tempo used only in new conversation');
+ await p.evaluate(()=>window.DecisionPause());check(await p.evaluate(()=>window.microphones.at(-1).stopped),'Background stops microphone immediately');
+ await p.waitForFunction(()=>window.calls.some(c=>c.operation==='live_close'&&c.body.session_id==='live_fixture_2'));
+ check(await p.locator('#voiceStart').isVisible(),'Background closure restores start control');
+ await p.evaluate(()=>{window.DecisionResume();window.delayLive=120;});await p.locator('#voiceStart').click();await p.waitForFunction(()=>window.calls.filter(c=>c.operation==='live_start').length===3);
+ await p.locator('[data-close="voiceDialog"]').click();await p.waitForFunction(()=>window.calls.some(c=>c.operation==='live_close'&&c.body.session_id==='live_fixture_3'));
+ check(await p.evaluate(()=>window.microphones.every(t=>t.stopped)),'Closing during handshake leaks no microphone');
+ check(await p.locator('#voiceControls').isHidden(),'Stale handshake cannot reopen voice controls');
  check(errors.length===0,'No JavaScript runtime errors: '+errors.join('; '));
  console.log(JSON.stringify({status:'PASS',checks,viewports:[320,360,393,540,1280],liveAPI:false,notes:'Native bridge fixtures only; screenshots with fixtures are not real fares.'}));
  await browser.close();

@@ -3,5 +3,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${JSON_JAR:?Set JSON_JAR to org.json json-20250517.jar}"
 mkdir -p build/direct-tests
-javac -cp "$JSON_JAR" -d build/direct-tests app/src/main/java/com/edward/lumi/DirectAi.java tests/java/com/edward/lumi/DirectAiTest.java
+javac -cp "$JSON_JAR" -d build/direct-tests app/src/main/java/com/edward/lumi/DirectAi.java app/src/main/java/com/edward/lumi/LiveVoice.java tests/java/com/edward/lumi/DirectAiTest.java tests/java/com/edward/lumi/LiveVoiceTest.java
 java -cp "build/direct-tests:$JSON_JAR" com.edward.lumi.DirectAiTest
+java -cp "build/direct-tests:$JSON_JAR" com.edward.lumi.LiveVoiceTest
