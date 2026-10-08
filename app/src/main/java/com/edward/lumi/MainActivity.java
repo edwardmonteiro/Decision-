@@ -34,6 +34,8 @@ import java.util.concurrent.*;
 
 public class MainActivity extends Activity {
     private WebView web;
+    private android.speech.tts.TextToSpeech voice;
+    private volatile boolean voiceReady;
     private final ExecutorService network = Executors.newFixedThreadPool(3);
     private volatile DirectAi ai;
     private volatile boolean configuring;
@@ -43,6 +45,7 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         prefs=getSharedPreferences("lumi_connection",MODE_PRIVATE);
+        voice=new android.speech.tts.TextToSpeech(this,status->{if(status==android.speech.tts.TextToSpeech.SUCCESS&&voice!=null){int lang=voice.setLanguage(new java.util.Locale("pt","BR"));voice.setSpeechRate(.86f);voiceReady=lang>=0;}});
         if(prefs.contains("openai_key")){try{DirectAi restored=createAi(decrypt(prefs.getString("openai_key","")));ai=restored;network.execute(restored::recover);}catch(Exception e){prefs.edit().remove("openai_key").apply();}}
         getWindow().setStatusBarColor(Color.rgb(7,18,30));
         getWindow().setNavigationBarColor(Color.rgb(7,18,30));
@@ -89,7 +92,7 @@ public class MainActivity extends Activity {
         if(!path.matches("/(decisions|vaults(/[A-Za-z0-9_-]+)?|agents/(sessions|environments)(/[A-Za-z0-9_-]+)?(/(turns|items))?)(\\?[A-Za-z0-9_=&-]+)?"))throw new IOException("Invalid API path");
         HttpsURLConnection c=(HttpsURLConnection)new URL("https://api.openai.com/v1"+path).openConnection();
         try {
-            c.setInstanceFollowRedirects(false);c.setConnectTimeout(10000);c.setReadTimeout(18000);
+            c.setInstanceFollowRedirects(false);c.setConnectTimeout(10000);c.setReadTimeout(path.equals("/decisions")?35000:18000);
             c.setRequestMethod(method);c.setRequestProperty("Authorization","Bearer "+apiKey);
             c.setRequestProperty("Content-Type","application/json");c.setRequestProperty("OpenAI-Beta","agents=v1");
             if(body!=null){c.setDoOutput(true);try(OutputStream out=c.getOutputStream()){out.write(body.toString().getBytes(StandardCharsets.UTF_8));}}
@@ -112,7 +115,7 @@ public class MainActivity extends Activity {
     private void setupOpenAI(){
         if(configuring)return;
         LinearLayout layout=new LinearLayout(this);layout.setOrientation(LinearLayout.VERTICAL);int pad=(int)(22*getResources().getDisplayMetrics().density);layout.setPadding(pad,pad,pad,pad);
-        TextView info=new TextView(this);info.setText("Cole sua chave de API OpenAI. Ela fica criptografada neste celular. O teste faz uma decisão e prepara uma missão na sua conta, com cobrança de API. Nenhum servidor próprio é necessário.");info.setTextSize(15);layout.addView(info);
+        TextView info=new TextView(this);info.setText("Cole sua chave de API OpenAI. Ela fica criptografada neste celular. Ao experimentar, somente o desenho é enviado à OpenAI. Não desenhe nomes ou dados pessoais. O teste lê um desenho de exemplo e prepara um desafio, com cobrança de API. Nenhum servidor próprio é necessário.");info.setTextSize(15);layout.addView(info);
         EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Chave de API OpenAI");input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);input.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO);layout.addView(input);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Conectar OpenAI").setView(layout).setNegativeButton("Cancelar",(d,w)->input.setText("")).setPositiveButton("Conectar e testar",null).create();
         dialog.setOnShowListener(d->{dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
@@ -130,14 +133,15 @@ public class MainActivity extends Activity {
             DirectAi previous=ai;ai=null;prefs.edit().remove("openai_key").apply();
             if(previous!=null)network.execute(previous::stop);
         }
+        @JavascriptInterface public void speak(String text){if(text.length()<=240&&voiceReady)runOnUiThread(()->voice.speak(text,android.speech.tts.TextToSpeech.QUEUE_FLUSH,null,"lumi-instruction"));}
         @JavascriptInterface public void haptic(){long now=android.os.SystemClock.elapsedRealtime();if(now-lastHaptic<200)return;lastHaptic=now;Vibrator v=(Vibrator)getSystemService(VIBRATOR_SERVICE);if(v!=null&&v.hasVibrator())v.vibrate(VibrationEffect.createOneShot(18,45));}
         @JavascriptInterface public void request(String id,String path,String method,String body){
-            if(!id.matches("[0-9]{1,10}")||!path.matches("/(health|activate|v1/runs(/[a-f0-9-]{36}(/decision)?)?)")||!(method.equals("GET")||method.equals("POST")||method.equals("DELETE"))||body.length()>8192){result(id,error("Requisição inválida"));return;}
+            if(!id.matches("[0-9]{1,10}")||!path.matches("/(health|activate|v1/(challenge|classify|outcomes))")||!(method.equals("GET")||method.equals("POST")||method.equals("DELETE"))||body.length()>(path.equals("/v1/classify")?360000:8192)){result(id,error("Requisição inválida"));return;}
             network.execute(()->{try{DirectAi service=ai;if(service==null){result(id,error(configuring?"Conexão em preparo…":"Conecte a OpenAI no aplicativo."));return;}result(id,service.handle(path,method,new JSONObject(body)));}catch(DirectAi.ApiError e){result(id,error(e.getMessage()));}catch(Exception e){result(id,error("Falha de conexão ou resposta inválida. O jogo continua offline."));}});
         }
     }
-    @Override protected void onPause(){if(web!=null){web.evaluateJavascript("window.LumiPause&&window.LumiPause()",null);web.onPause();}super.onPause();}
+    @Override protected void onPause(){if(voice!=null)voice.stop();if(web!=null){web.evaluateJavascript("window.LumiPause&&window.LumiPause()",null);web.onPause();}super.onPause();}
     @Override protected void onResume(){super.onResume();if(web!=null){web.onResume();web.evaluateJavascript("window.LumiResume&&window.LumiResume()",null);}}
     @Override public void onBackPressed(){if(web!=null)web.evaluateJavascript("window.LumiBack&&window.LumiBack()",null);}
-    @Override protected void onDestroy(){DirectAi service=ai;ai=null;if(service!=null)network.execute(service::stop);network.shutdown();if(web!=null){web.removeJavascriptInterface("Android");web.destroy();web=null;}super.onDestroy();}
+    @Override protected void onDestroy(){if(voice!=null){voice.stop();voice.shutdown();voiceReady=false;}DirectAi service=ai;ai=null;if(service!=null)network.execute(service::stop);network.shutdown();if(web!=null){web.removeJavascriptInterface("Android");web.destroy();web=null;}super.onDestroy();}
 }

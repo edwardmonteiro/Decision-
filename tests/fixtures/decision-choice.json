@@ -3,21 +3,25 @@
   "answers": [
     {
       "type": "choice",
-      "name": "pace",
-      "choice": "bright",
+      "name": "solution",
+      "choice": "bridge",
       "confidence": 0.95,
       "probabilities": [
         {
-          "value": "gentle",
+          "value": "bridge",
+          "probability": 0.95
+        },
+        {
+          "value": "boat",
           "probability": 0.02
         },
         {
-          "value": "steady",
-          "probability": 0.03
+          "value": "jump",
+          "probability": 0.02
         },
         {
-          "value": "bright",
-          "probability": 0.95
+          "value": "unclear",
+          "probability": 0.01
         }
       ]
     }
