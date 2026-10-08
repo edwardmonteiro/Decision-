@@ -1,8 +1,8 @@
-# LUMI Travessias v0.3.0 — direct Android operation
+# LUMI Travessias v0.4.0 — direct Android operation
 
 ## Update and activation
 
-Install LUMI-Travessias-v0.3.0.apk over LUMI Orbit. The package remains com.edward.lumi, with versionCode 4 and the original signing certificate. Android Keystore alias and SharedPreferences name are unchanged. Do not uninstall if preserving the key. Old space mission caches/statuses are migrated away; Vault ID, key and daily counters remain. Old space scores are left untouched in their separate browser storage key.
+Install LUMI-Travessias-v0.4.0.apk over the existing LUMI app. The package remains com.edward.lumi, with versionCode 5 and the original signing certificate. Android Keystore alias and SharedPreferences name are unchanged. Do not uninstall if preserving the key. Old space mission caches/statuses are migrated away; Vault ID, key and daily counters remain. Old space scores are left untouched in their separate browser storage key.
 
 Open Configurações → Área dos responsáveis → Conectar OpenAI. Existing keys work without re-entry. Testing classifies a bundled bridge drawing and creates/reuses the Vault before planning a river. When the parent has already configured a Vault, opening the new game can prepare the first challenge directly.
 
@@ -37,14 +37,34 @@ Managed sessions use gpt-6-astra, a small openai_hosted environment and disabled
 
 ## Privacy and offline behavior
 
-The parent’s instruction authorizes recognition by explicitly pressing Experimentar. Only drawing strokes leave the device for Decisions. Avoid personal data in drawings. The app does not persist raw images, log API keys or collect names, voice, location or device identifiers. Native TTS reads fixed game instructions; availability depends on the installed engine/voice.
+The parent’s instruction authorizes recognition by explicitly pressing Experimentar. Only drawing strokes leave the device for Decisions. Avoid personal data in drawings. The app does not persist raw images, log API keys or collect names, location or device identifiers. Voice is streamed only after explicit activation, as described below. Native TTS reads fixed game instructions; availability depends on the installed engine/voice.
 
 When AI is unavailable, the user explicitly selects bridge/boat/jump. UI and history label this as manual. Local challenges, game rules, rendering, sound and local progress remain functional. The game does not claim local image recognition.
 
 The parent gate is a casual child-access barrier, not authentication. Provider data retention and billing follow the account settings. Review applicable children's-product requirements before public distribution.
 
+## Live voice contract
+
+POST `/v1/live/sessions` JSON contains a native-owned `session` config and `transport:{type:"webrtc",sdp}`. The browser supplies only the SDP and a validated six-field river. The API key stays in native HTTPS. A successful response provides `session.id` and `transport.sdp`; only these and the model label cross the bridge. The WebRTC data channel is created before SDP generation; ICE gathering completes before sending. HTTP creation starts Live: no `session.start` is sent. UI readiness requires `session.started`.
+
+Model `gpt-live-1`, voice `bossa`, `store:false`, Responses delegation to `gpt-6-luna` with low reasoning and three strict tools: `change_river`, `get_river`, `end_voice`. The config is not served as a browser asset. Frontend data-channel client events are limited to session close, instructions/context append and Responses continuation/results. No browser session reconfiguration, web search, generated code or arbitrary URL execution is exposed.
+
+`change_river` accepts one enum command. UI independently validates it and blocks changes outside drawing, during a pointer stroke, in menus and in the background. It preserves strokes, repairs the proposed focus if necessary, invalidates a stale initial Agents response, and records up to ten local undo snapshots for this river. Completed game attempts retain voice-modified conditions in their normal outcome payload. No audio/transcript is sent to the Agents planner.
+
+Read function calls from nested `response.output_item.done`, collect them by delegation/current response, and apply only after `response.completed`. Partial arguments, failed/incomplete responses, duplicate call IDs, invalid tools and extra parameters cannot mutate the scene. Send one `response.item.create` output per executed call and explicitly continue with `response.create`. At most 24 function calls per conversation. This guard and prompts bound game actions; speech quality and request understanding remain model-dependent.
+
+## Microphone and voice lifecycle
+
+`RECORD_AUDIO` is requested from the Falar flow. The WebChrome permission gate accepts only audio capture for the fixed local HTTPS origin, with a native activation flag, foreground state and Android permission. No camera permission. Android TTS is suppressed while the live conversation is active. Microphone capture uses echo cancellation/noise suppression. If autoplay is blocked, a visible button retries playback.
+
+A native timer caps activation at 120 seconds; a WebView timer also ends media after 115 seconds of capture. Six creation attempts per UTC day per key are persisted; failures count and there are no blind POST retries. The first two-minute ceiling includes setup, so usable conversation can be shorter. Quotas are local safeguards, not billing guarantees.
+
+Stopping disables/stops local tracks and pauses/detaches playback immediately, sends `session.close`, and attempts native HTTP hangup on the known ID. The app keeps the event channel briefly for `session.closed`; that event confirms finalization. Otherwise it closes transport without claiming confirmed final server usage. Known pending IDs survive failed native cleanup and are retried before allowing another creation. Cancelled in-flight creations are closed if their ID arrives later. Like Agents, a lost creation response without an ID cannot be cleaned up by the application. Native cleanup and process-kill behavior need physical-device verification.
+
+The native permission dialog may temporarily pause the activity. Before permission resolves, there is no audio capture; the voice startup can survive that pause. Once active, backgrounding, opening a game menu, changing/removing the key, spoken stop, errors and timeouts stop the voice. Captions exist only in bounded memory and are cleared on cleanup. Live store=false does not replace the provider's data-retention policies.
+
 ## Verification boundary
 
-Native contracts and browser flows were tested with fixtures. The prior user's screenshot established v0.2.0 Session/Environment/Vault operation, not the new v0.3.0 visual classifier's accuracy. Live recognition/adaptive prompting and physical Android/TTS checks remain to be performed with the user's configured account/device.
+Native contracts and browser flows were tested with fixtures. The prior user's screenshot established v0.2.0 Session/Environment/Vault operation, not the new v0.4.0 visual classifier's accuracy. Live GPT-Live speech, recognition/adaptive prompting and physical Android/WebRTC/permission/TTS checks remain to be performed with the user's configured account/device.
 
 Signing secrets remain outside the repository. CI secrets: LUMI_KEYSTORE_BASE64 and LUMI_STOREPASS. server/ is an unused legacy reference.
