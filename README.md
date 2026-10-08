@@ -4,84 +4,82 @@
 passagens com navegador hospedado na OpenAI, Agents, Session, Environment,
 Vault e Decisions. Interface minimalista; ajustes na mesma sessão; sem JEV.
 
-# LUMI Orbit
+# LUMI · Travessias
 
-A fast, friendly Android vector arcade game for children. Portrait, one-finger controls, short expeditions, original synthesized sound and procedural line art.
+A minimalist Android drawing puzzle for children. Draw an idea to cross the river; watch Lumi use it. This v0.3.0 update replaces the previous space shooter while preserving the package, signing certificate and encrypted OpenAI key.
 
-**v0.2.1 runs on the phone and connects directly to OpenAI. No separately deployed backend is required.** The signed APK plays offline immediately. To enable cloud features, a parent enters their own OpenAI API key in the native Android connection dialog. The app then makes real API calls and reports each service's result and resource IDs.
+## Play on your phone
 
-**v0.2.1 fixes Decisions response parsing:** the documented response has `answers`, `model` and `usage`, without a required `id`. The former parser incorrectly rejected a valid answer. Readiness now follows the validated answer; the HTTP `x-request-id` is optional diagnostic evidence. Tests cover this exact response shape, refusals, malformed answers and failed retests. Network timeout, DNS, TLS and JSON errors now have distinct messages.
+Install **LUMI-Travessias-v0.3.0.apk** over the previous LUMI app. Do not uninstall first if you want to preserve your key and local settings. Android 9+.
 
-The user's v0.2.0 screenshot showed a generated mission, a validated/closed environment and a created Vault. Decisions failed in that version. No key was available to the builder; live verification of this Decisions fix remains pending on the user's phone. Install as an update, then tap **TESTAR SERVIÇOS**. Existing key and resource settings are preserved.
+1. See the river: narrow/wide, calm/fast, sometimes with a backpack.
+2. Draw a **bridge**, **boat**, or **jump arrow** with one finger. Undo and clear are available.
+3. Tap **EXPERIMENTAR**. Decisions receives the drawing image and classifies the intended solution.
+4. Lumi builds a bridge, sails, or jumps. A short explanation shows why the crossing worked or needs another idea.
+5. Tap **PRÓXIMO DESAFIO**. Agents prepares the next river using the recent solutions and outcomes.
 
-## Install and connect
+**Ver ideias** shows drawing examples. The speaker button reads the challenge using Android text-to-speech when a Portuguese voice is available. Sound and reduced movement are configurable.
 
-1. Install `LUMI-Orbit-v0.2.1.apk` on Android 9 or newer. It uses the same signing certificate as v0.1.0 and can update it.
-2. Open **Configurações → Área dos responsáveis**, answer the parent gate, then choose **CONECTAR OPENAI**.
-3. Enter your API key in the protected native Android dialog and select **Conectar e testar**. API access, internet and account billing are required.
-4. The app tests Decisions, creates or reuses a Vault, and prepares a mission with a managed Session and hosted Environment. The panel shows errors if the account lacks access or quota.
-5. Play while the mission prepares. Validated mission data appears in the next available expedition.
+## The AI has a visible job
 
-The API key is encrypted using Android Keystore, excluded from backups, and never passed to game JavaScript. This is a personal-device, bring-your-own-key app; no shared developer secret is embedded in the APK. A mobile device cannot guarantee protection of an API key against a compromised operating system. For public distribution with centrally funded access, use a server-mediated architecture.
-
-## Play
-
-- Drag to move. Shooting and aim assistance are automatic.
-- Approach golden stars to rescue them. Collect eight to complete the expedition.
-- The shield protects for three seconds and recharges in ten.
-- Rounds last up to 60 seconds or three collisions. Every ending encourages another try.
-- Three bounded patterns: star garden, comet stream and moon rings.
-- No ads, trackers, microphone, camera, location or free-text interaction with children.
-
-## OpenAI integration
-
-| Component | Actual job |
+| Component | Job |
 |---|---|
-| Decisions | `POST /v1/decisions`, model `gpt-6-luna`: select gentle, steady or bright pace from numeric game metrics, at most twice per round |
-| Session | `POST /v1/agents/sessions`, model `gpt-6-astra`: prepare an eight-star flight pattern, accepted only from a completed root turn |
-| Environment | Small `openai_hosted` sandbox with networking disabled; the agent is instructed to generate and validate its numeric pattern using Python |
-| Vault | A real reusable Vault is created and attached through `vault_ids`. It is empty because this game requires no external-service credentials |
-| Android | Local rendering, physics, sound, progress, API orchestration, encrypted key storage and strict validation |
+| Decisions (`gpt-6-luna`) | Classify a real 512×320 PNG drawing as bridge, boat, jump or unclear. No speed adjustment or placeholder classification. |
+| Agents / Session (`gpt-6-astra`) | Generate the next bounded river configuration using up to eight previous attempts and outcomes. |
+| Environment | Hosted small sandbox, network disabled. The agent is instructed to use Python to validate its configuration. The app also validates every field and solution feasibility locally. |
+| Vault | Reuses the existing real empty Vault and attaches it to sessions. No external credentials are required; it does not store player history or the API key. |
+| Android | Captures strokes, encrypts the API key, sends HTTPS requests, validates outputs, animates the crossing, applies game rules and saves local progress. |
 
-The OpenAI Vault does **not** hold the main API key. Android Keystore protects that key locally. Sessions and environments run in OpenAI's cloud; gameplay runs on the phone. The app verifies environment connectivity and validated final output, but does not claim to audit every tool execution.
+The scene labels whether its challenge came from **Agents** or local rules. The result labels whether **Decisions** recognized the drawing or the player chose a solution manually. The parent panel shows real service statuses, request/session IDs and recent attempts.
 
-Only an approved mission ID, eight bounded lane positions and a bounded speed multiplier can enter gameplay. No generated code or unrestricted text runs or displays in the game. Offline rules cover network failures. Daily local caps are 24 Decisions calls and 12 sessions; they are request limits, not dollar budgets.
+Decisions' response has `answers`, `model` and `usage`; it does not require a resource `id`. This retains the v0.2.1 fix. HTTP `x-request-id`, when present, is captured for diagnostics.
 
-## Source map
+## Game rules
 
-- `app/src/main/assets/`: shipped Canvas game and interface.
-- `app/src/main/java/com/edward/lumi/MainActivity.java`: Android shell, native key dialog, Keystore and fixed-host HTTPS transport.
-- `app/src/main/java/com/edward/lumi/DirectAi.java`: direct Decisions/Agents/Vault orchestration, quotas, validation and session cleanup.
-- `tests/java/com/edward/lumi/DirectAiTest.java`: native orchestration contract tests using an in-memory transport.
-- `docs/operations.md`: setup, resource lifecycle, limits and remaining device/live verification.
-- `server/`: legacy v0.1 optional backend reference. **The v0.2 APK does not call it.**
-- `scripts/build.sh`: Android compilation and release signing.
+| Idea | Crossing rule |
+|---|---|
+| Bridge | Connects both banks for every supported river. |
+| Boat | Works in calm water; fast current brings Lumi safely back. |
+| Jump | Works when width ≤ 0.32 and there is no backpack. |
+| Unclear | Keeps the drawing available and asks for more detail. |
 
-## Build and test
+These are explicit puzzle rules, not a real-world physics simulator. The model recognizes the drawing; deterministic local rules determine the result. Raw model confidence below 0.55 becomes unclear. This is a conservative application threshold, not calibrated accuracy. Recognition errors can be corrected manually and are labelled accordingly.
 
-Requires JDK 17+, Android platform API 35+, Android build tools 35+, Python 3.10+ and a private signing keystore. No Gradle, game engine or npm packages are needed by the APK build. After the tools are installed, compilation is offline.
+The game does not execute model-generated code on the phone. Agents may vary width, current, backpack, theme and a proposed viable focus. Its final answer must pass the local six-field validator.
+
+## Connect
+
+**Configurações → Área dos responsáveis → Conectar OpenAI**. Enter your own API key in the protected native dialog. Existing v0.2.x keys remain usable. No private backend or hosting is needed. The game can run manually without internet, but cloud recognition/planning require API access and billing.
+
+Only the drawing image is sent for recognition, not a screenshot of the phone. Do not draw names or personal data. Images are not persisted by the app. Agents receives bounded history entries, not drawing images. Provider retention follows the account's settings. Keys never enter WebView JavaScript and remain encrypted with Android Keystore.
+
+Local daily limits remain 24 Decisions calls and 12 sessions. The connection test consumes one sample-drawing call and can prepare one challenge. Counts are not currency budgets. See [operations](docs/operations.md).
+
+## Build and verify
+
+Requires Java 17+, Android platform API 35+, Android build tools and a private release keystore. No Gradle, game engine or npm dependencies are needed by the Android build.
 
 ```bash
 node --check app/src/main/assets/game.js
-# Standalone JVM tests require org.json:json:20250517 (Android provides org.json at runtime).
 JSON_JAR=/path/to/json-20250517.jar bash scripts/test-direct.sh
-python3 -m unittest discover -s tests -v  # legacy backend regression tests
-# Set ANDROID_JAR, BUILD_TOOLS, LUMI_KEYSTORE and LUMI_STOREPASS.
-# Keystore alias: lumi. Never commit signing material.
+# Set ANDROID_JAR, BUILD_TOOLS, LUMI_KEYSTORE, LUMI_STOREPASS. Alias: lumi.
 bash scripts/build.sh
 ```
 
-Output: `build/LUMI-Orbit-v0.2.1.apk`. CI requires the original signing secrets to produce compatible updates. A browser preview can serve `app/src/main/assets/`; the secure native connection dialog exists only in the APK.
+Output: `build/LUMI-Travessias-v0.3.0.apk`. Never commit the signing material. CI can sign with the original release secrets. `server/` remains the unused v0.1 reference and is not contacted by the app.
 
-## Verification boundary
+## Verification and limits
 
-- Compiled against API 36; minimum API 28, target API 35. Release signature verified.
-- Native orchestration tested with fixtures: provision, completed-turn handling, mission bounds, quota, errors, cleanup and Decisions caching.
-- Browser gameplay checked for touch movement, shield, pause, complete rounds, replay, saved progress and responsive layouts.
-- No physical Android device/emulator test or live OpenAI request was performed during this delivery. The parent panel performs real account checks after connection.
+- Native contract tests cover image request shape, no-ID responses, all classes, uncertainty, invalid schemas, history-conditioned planning, resource cleanup, quotas and data boundaries.
+- Browser interaction tests cover drawing, undo, recognition UI, three animations, failed crossings, unclear drawings, manual fallback, next challenge, parent settings and lifecycle hooks.
+- Layouts checked at 360×640, 390×844 and 1200×900 with Playwright Chromium. Browser plugin was unavailable for this local surface.
+- APK compilation and signature are verified. Same certificate as v0.2.x.
+- The new visual Decisions call and adaptive agent prompt were tested with fixtures, not a live key. No physical Android/emulator test was performed here. The user's earlier screenshot verified Sessions/Environment/Vault for the prior release; it does not validate this release's recognition accuracy.
 
-## Official contracts
+## Source
 
-Checked 2026-10-08: [Decisions response schema](https://developers.openai.com/api/reference/resources/decisions/methods/create), [Decisions](https://developers.openai.com/api/docs/guides/decisions), [Agents quickstart](https://developers.openai.com/api/docs/guides/agents-api/quickstart), [Sessions](https://developers.openai.com/api/docs/guides/agents-api/sessions), [Events](https://developers.openai.com/api/docs/guides/agents-api/sessions/events), [Hosted environments](https://developers.openai.com/api/docs/guides/agents-api/environments/openai-hosted), [Vaults](https://developers.openai.com/api/docs/guides/agents-api/tools/vaults).
+`app/src/main/assets/`: code-native vector game and UI. `MainActivity.java`: Android transport, TTS and key storage. `DirectAi.java`: classification, planning and validation. `tests/java/`: fixture tests. `docs/design.md`: interaction and visual specification.
 
-MIT. Original vector art and synthesized audio.
+Official contracts checked 2026-10-08: [Decisions](https://developers.openai.com/api/reference/resources/decisions/methods/create), [Agents quickstart](https://developers.openai.com/api/docs/guides/agents-api/quickstart), [Hosted environments](https://developers.openai.com/api/docs/guides/agents-api/environments/openai-hosted), [Vaults](https://developers.openai.com/api/docs/guides/agents-api/tools/vaults).
+
+MIT. Original procedural line art and synthesized sound.

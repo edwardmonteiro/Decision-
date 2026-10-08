@@ -52,5 +52,5 @@ jobs:
           bash scripts/build.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: LUMI-Orbit-v0.2.1
-          path: build/LUMI-Orbit-v0.2.1.apk
+          name: LUMI-Travessias-v0.3.0
+          path: build/LUMI-Travessias-v0.3.0.apk

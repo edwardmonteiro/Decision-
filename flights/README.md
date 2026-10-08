@@ -95,9 +95,9 @@ do usuário. O teste de conexão no APK usa os serviços reais.
 - [Computer use e navegador hospedado](https://developers.openai.com/api/docs/guides/agents-api/tools/computer-use)
 - [Configuração do agente](https://developers.openai.com/api/docs/guides/agents-api/configuration)
 - [Sessions](https://developers.openai.com/api/docs/guides/agents-api/sessions)
-- [Environment](https://developers.openai.com/api/docs/guides/agents-api/environment)
-- [Vaults](https://developers.openai.com/api/docs/guides/agents-api/vaults)
+- [Environment](https://developers.openai.com/api/docs/guides/agents-api/environments/openai-hosted)
+- [Vaults](https://developers.openai.com/api/docs/guides/agents-api/tools/vaults)
 - [Decisions](https://developers.openai.com/api/docs/guides/decisions)
 
-Este módulo é separado de LUMI Orbit (`com.edward.flights`) e não substitui os
+Este módulo é separado do jogo LUMI (`com.edward.flights`) e não substitui os
 arquivos nem os dados do jogo existente.

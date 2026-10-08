@@ -1,56 +1,50 @@
-# Direct Android operation — v0.2.1
+# LUMI Travessias v0.3.0 — direct Android operation
 
-## Setup
+## Update and activation
 
-Install the signed APK. Open Configurações → Área dos responsáveis → solve the gate → CONECTAR OPENAI. Enter your own API key in the native dialog. No backend URL, device token, Python server or hosting account is required.
+Install LUMI-Travessias-v0.3.0.apk over LUMI Orbit. The package remains com.edward.lumi, with versionCode 4 and the original signing certificate. Android Keystore alias and SharedPreferences name are unchanged. Do not uninstall if preserving the key. Old space mission caches/statuses are migrated away; Vault ID, key and daily counters remain. Old space scores are left untouched in their separate browser storage key.
 
-Connection performs a billable Decisions probe and, subject to access, creates/reuses a Vault and starts mission preparation. The key stays in Android's private preferences encrypted with an Android Keystore AES-GCM key. Backups and WebView debugging are disabled. It is not sent to JavaScript or stored in the OpenAI Vault. Do not put keys in chat, issues or source control.
+Open Configurações → Área dos responsáveis → Conectar OpenAI. Existing keys work without re-entry. Testing classifies a bundled bridge drawing and creates/reuses the Vault before planning a river. When the parent has already configured a Vault, opening the new game can prepare the first challenge directly.
 
-The arithmetic parent gate prevents casual child access; it is not authentication. Use the device lock to control access. The BYOK design is intended for a parent's personal device, not distribution of a shared secret to customers.
+No backend is deployed or required. All provider calls use fixed HTTPS paths at api.openai.com. The native dialog protects key entry from screenshots, encrypts the key with Android Keystore AES-GCM, and never exposes it to JavaScript. Backups and WebView debugging are disabled. This is a personal-device BYOK app, not a distribution mechanism for shared developer keys.
 
-## v0.2.1 update
+## Classification contract
 
-Install over v0.2.0, then tap TESTAR SERVIÇOS. The signing certificate and encrypted-key storage are unchanged. This release removes an incorrect requirement for an `id` in the Decisions JSON body. The documented response contains answers/model/usage. A valid allowlisted choice establishes success even when no HTTP request ID is provided. If available, the native transport captures `x-request-id` separately for troubleshooting. A failed new request clears previous Decisions validation.
+POST /v1/decisions with gpt-6-luna, one user input containing fixed input_text and input_image with an inline PNG data URL. The question name is solution; allowed choices are bridge, boat, jump, unclear. The image is treated as untrusted content and cannot supply commands to the application. Only the allowlisted choice and bounded numeric confidence affect play.
 
-Regression fixtures follow the documented no-ID response shape. They are synthetic examples, not recorded live responses. The user's screenshot verified Session/Environment/Vault status in v0.2.0; the updated Decisions path still needs a real phone/account retest.
+Native bridge input accepts only attempt_id plus image. Maximum serialized body 360,000 characters; PNG data URL maximum 350,000 characters; dimensions 16–768 pixels. The client produces 512×320 black-on-white strokes. No camera, photo-picker or full-screen capture is involved. An empty/tiny gesture is caught before sending.
 
-## Real statuses
+No JSON resource ID is expected in a Decisions response. HTTP x-request-id is optional diagnostic evidence. Confidence <0.55 becomes unclear. A refusal, invalid schema or network error cannot become a successful classification. Native results are cached by attempt ID to avoid duplicate billable calls for an unchanged attempt.
 
-The parent panel reports Decisions, Session, Environment and Vault independently, including provider resource IDs and the last verification time. HTTP 401, 403, 404 and 429 have distinct messages. A saved key alone does not establish readiness.
+## Challenge contract
 
-Readiness requires a valid Decisions response, a created/verified Vault, a connected hosted environment and a validated mission from a completed root turn. These are historical checks; the completed planning session is promptly deleted to release resources. “Sandbox validado e encerrado” is intentional, not a permanently running environment. A new plan temporarily shows its current preparation state.
+Agents receives up to eight bounded history records: attempted solution, source (Decisions/manual), local success, and the prior challenge parameters. Drawings are not sent to Agents. Manual attempts performed while disconnected stay in local game history and are not retroactively uploaded when connecting.
 
-The Vault is attached to each managed session and deliberately contains no external credentials. The self-contained sandbox has no network access or external catalog dependency. Adding dummy credentials would serve no purpose.
+The agent returns exactly width/current/cargo/theme/focus/reason. Width is [0.24,0.50]; current calm/fast; cargo boolean; theme meadow/sunset/night; focus bridge/boat/jump; reason first/repeat_gently/try_new/more_room. Local validation verifies that focus can cross according to the game rules. Native code recalculates each outcome rather than trusting a JavaScript success flag.
 
-## Data and gameplay
+A sequence number associates each prepared challenge with the history that produced it. Results generated from an older sequence are discarded, and a new plan can be scheduled after cleanup. GET does not consume a challenge; recording an outcome invalidates the cached challenge. This prevents speculative planning from ignoring the player's latest solution.
 
-Only six integer metrics reach Decisions: wave, collected stars, collisions, shots, cleared asteroids and elapsed seconds. Player names, photos, voice, locations and device identifiers are not collected. The agent sees fixed instructions for a numeric mission, not a conversation with the child.
+Managed sessions use gpt-6-astra, a small openai_hosted environment and disabled networking. The prompt instructs Python generation/validation. The app verifies connected environment status, a completed root turn and validated final output; it does not independently audit every tool execution. The reusable empty Vault is attached, with no dummy credentials.
 
-Mission acceptance requires exactly three fields: approved mission_id, eight star_lanes within [0.12, 0.88] and asteroid_speed within [0.8, 1.1]. Neighboring lanes may differ by at most 0.4. Every value is validated natively and again before gameplay. Generated text/code is never executed on Android.
+## Limits and resource lifecycle
 
-Decisions chooses gentle, steady or bright. Bright is clamped to steady below four collected stars or after any collision. Timing changes apply between waves, so calls cannot block rendering or touch input. No online response is necessary to finish a round.
+- Persistent local daily quotas remain 24 Decisions requests and 12 session requests per UTC day, scoped to the key. Reinstallation/clearing data resets local counters; they are not server-enforced dollar budgets.
+- One planner at a time. Planning polls for up to 110 seconds plus in-flight requests. Classification uses 10-second connection and 35-second read timeouts; other provider requests use an 18-second read timeout.
+- Session DELETE after success/failure; known pending IDs are retried on restart or a new service test. A 404 on deletion counts as already cleaned up.
+- A process kill or POST timeout before receiving a session ID can leave a remote resource requiring Platform inspection. There are no blind billable POST retries.
+- Removing/changing the key attempts cleanup with the old key. The empty Vault remains in the account until manually removed.
+- Sandbox completion does not mean a permanently running environment. The parent panel's “validado e encerrado” is intentional.
 
-## Quotas and lifecycle
+## Privacy and offline behavior
 
-- Local persistent caps: 24 Decisions requests and 12 session requests per UTC day, scoped to the entered key. Reinstalling/clearing app data resets local counters; these are not provider-enforced spending limits.
-- At most two active local rounds and one planner. Per-wave Decisions answers are cached. The next mission is cached until consumed.
-- Agent polling lasts up to 110 seconds plus in-flight HTTPS time. Transport connect timeout is 10 seconds and read timeout is 18 seconds. No blind retry of billable POST requests.
-- Sessions are deleted after success/failure and on orderly activity teardown. Pending known IDs are retried after restart or a new test. Already-deleted sessions are treated as cleaned up.
-- Android may kill the process before cleanup. The saved ID enables retry on reopening; a session-creation timeout before receiving its ID cannot be automatically reconciled. Check the Platform session list after interrupted preparation.
-- Changing/removing a key attempts cleanup with the old key. The reusable empty Vault remains in the account. Remove it in Platform if no longer wanted.
-- Removals do not promise secure memory erasure or remote history deletion. Provider retention and billing follow the account's settings.
-- Check account budgets and service access in Platform. Request caps do not guarantee a maximum currency amount.
+The parent’s instruction authorizes recognition by explicitly pressing Experimentar. Only drawing strokes leave the device for Decisions. Avoid personal data in drawings. The app does not persist raw images, log API keys or collect names, voice, location or device identifiers. Native TTS reads fixed game instructions; availability depends on the installed engine/voice.
 
-## Verification still required on the actual account/device
+When AI is unavailable, the user explicitly selects bridge/boat/jump. UI and history label this as manual. Local challenges, game rules, rendering, sound and local progress remain functional. The game does not claim local image recognition.
 
-The repository's tests use fixture responses; no API key was available to the builder. Successful compilation is not a physical-device test. After entering your key, inspect real statuses and IDs, play an AI-labelled mission, and confirm Decisions results and session cleanup in Platform. If an API is unavailable to the account, the app reports it and continues with local rules.
+The parent gate is a casual child-access barrier, not authentication. Provider data retention and billing follow the account settings. Review applicable children's-product requirements before public distribution.
 
-On the target Android phone, verify installation, touch, sound, system bars and background/resume. Disable connectivity mid-round to confirm uninterrupted local play. Review the account's data controls and applicable children's-product requirements before public distribution.
+## Verification boundary
 
-## Legacy backend
+Native contracts and browser flows were tested with fixtures. The prior user's screenshot established v0.2.0 Session/Environment/Vault operation, not the new v0.3.0 visual classifier's accuracy. Live recognition/adaptive prompting and physical Android/TTS checks remain to be performed with the user's configured account/device.
 
-`server/` preserves the v0.1 backend implementation and its fixture tests for reference. It is not started or contacted by v0.2. Its deployment variables and catalog-credential provisioning script are unrelated to direct mobile setup.
-
-## Signing
-
-Retain the original private release keystore and password to sign updates. CI secrets: LUMI_KEYSTORE_BASE64 and LUMI_STOREPASS. Never publish these in the repository or release assets.
+Signing secrets remain outside the repository. CI secrets: LUMI_KEYSTORE_BASE64 and LUMI_STOREPASS. server/ is an unused legacy reference.

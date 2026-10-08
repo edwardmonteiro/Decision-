@@ -8,7 +8,14 @@ PROJECT_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 JAVAC=${JAVAC:-javac}
 JAR=${JAR:-jar}
 OUT="$PROJECT_ROOT/build"
-mkdir -p "$OUT/classes" "$OUT/dex" "$OUT/generated"
+python3 - "$OUT" <<'CLEAN'
+import pathlib,shutil,sys
+p=pathlib.Path(sys.argv[1])
+for name in ('classes','dex','generated'):
+ target=p/name
+ if target.exists():shutil.rmtree(target)
+ target.mkdir(parents=True)
+CLEAN
 "$BUILD_TOOLS/aapt2" compile --dir "$PROJECT_ROOT/app/src/main/res" -o "$OUT/resources.zip"
 "$BUILD_TOOLS/aapt2" link -o "$OUT/base.apk" --manifest "$PROJECT_ROOT/app/src/main/AndroidManifest.xml" -I "$ANDROID_JAR" -A "$PROJECT_ROOT/app/src/main/assets" --java "$OUT/generated" "$OUT/resources.zip"
 find "$PROJECT_ROOT/app/src/main/java" "$OUT/generated" -name '*.java' > "$OUT/sources.txt"
@@ -23,5 +30,5 @@ with zipfile.ZipFile(p/'unsigned.apk','a',zipfile.ZIP_DEFLATED) as z:
  for f in (p/'dex').glob('*.dex'):z.write(f,f.name)
 PY
 "$BUILD_TOOLS/zipalign" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
-"$BUILD_TOOLS/apksigner" sign --ks "$LUMI_KEYSTORE" --ks-pass env:LUMI_STOREPASS --ks-key-alias lumi --out "$OUT/LUMI-Orbit-v0.2.1.apk" "$OUT/aligned.apk"
-"$BUILD_TOOLS/apksigner" verify --verbose "$OUT/LUMI-Orbit-v0.2.1.apk"
+"$BUILD_TOOLS/apksigner" sign --ks "$LUMI_KEYSTORE" --ks-pass env:LUMI_STOREPASS --ks-key-alias lumi --out "$OUT/LUMI-Travessias-v0.3.0.apk" "$OUT/aligned.apk"
+"$BUILD_TOOLS/apksigner" verify --verbose "$OUT/LUMI-Travessias-v0.3.0.apk"
