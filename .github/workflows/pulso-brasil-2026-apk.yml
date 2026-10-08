@@ -1,0 +1,38 @@
+name: Pulso Brasil 2026 APK
+on:
+  push:
+    branches: [radar-brasil-2026]
+    paths:
+      - 'radar-brasil-2026/**'
+      - '.github/workflows/pulso-brasil-2026-apk.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install platform
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Build installable APK
+        run: gradle --no-daemon -p radar-brasil-2026 assembleDebug
+      - name: Rename APK
+        run: cp radar-brasil-2026/app/build/outputs/apk/debug/app-debug.apk PulsoBrasil-2026.apk
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PulsoBrasil-2026-APK
+          path: PulsoBrasil-2026.apk
+          if-no-files-found: error
