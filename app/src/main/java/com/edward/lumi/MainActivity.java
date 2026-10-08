@@ -100,7 +100,11 @@ public class MainActivity extends Activity {
             }
             try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
                 byte[] buffer=new byte[4096];int n,total=0;while((n=in.read(buffer))!=-1){total+=n;if(total>2000000)throw new IOException("Response too large");out.write(buffer,0,n);}
-                return out.size()==0?new JSONObject():new JSONObject(out.toString("UTF-8"));
+                JSONObject response=out.size()==0?new JSONObject():new JSONObject(out.toString("UTF-8"));
+                String requestId=c.getHeaderField("x-request-id");
+                response.remove("_request_id");
+                if(requestId!=null&&requestId.matches("[A-Za-z0-9_-]{1,160}"))response.put("_request_id",requestId);
+                return response;
             }
         } finally {c.disconnect();}
     }

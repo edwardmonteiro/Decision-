@@ -1,4 +1,4 @@
-# Direct Android operation — v0.2.0
+# Direct Android operation — v0.2.1
 
 ## Setup
 
@@ -7,6 +7,12 @@ Install the signed APK. Open Configurações → Área dos responsáveis → sol
 Connection performs a billable Decisions probe and, subject to access, creates/reuses a Vault and starts mission preparation. The key stays in Android's private preferences encrypted with an Android Keystore AES-GCM key. Backups and WebView debugging are disabled. It is not sent to JavaScript or stored in the OpenAI Vault. Do not put keys in chat, issues or source control.
 
 The arithmetic parent gate prevents casual child access; it is not authentication. Use the device lock to control access. The BYOK design is intended for a parent's personal device, not distribution of a shared secret to customers.
+
+## v0.2.1 update
+
+Install over v0.2.0, then tap TESTAR SERVIÇOS. The signing certificate and encrypted-key storage are unchanged. This release removes an incorrect requirement for an `id` in the Decisions JSON body. The documented response contains answers/model/usage. A valid allowlisted choice establishes success even when no HTTP request ID is provided. If available, the native transport captures `x-request-id` separately for troubleshooting. A failed new request clears previous Decisions validation.
+
+Regression fixtures follow the documented no-ID response shape. They are synthetic examples, not recorded live responses. The user's screenshot verified Session/Environment/Vault status in v0.2.0; the updated Decisions path still needs a real phone/account retest.
 
 ## Real statuses
 

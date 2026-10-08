@@ -2,13 +2,15 @@
 
 A fast, friendly Android vector arcade game for children. Portrait, one-finger controls, short expeditions, original synthesized sound and procedural line art.
 
-**v0.2.0 runs on the phone and connects directly to OpenAI. No separately deployed backend is required.** The signed APK plays offline immediately. To enable cloud features, a parent enters their own OpenAI API key in the native Android connection dialog. The app then makes real API calls and reports each service's result and resource IDs.
+**v0.2.1 runs on the phone and connects directly to OpenAI. No separately deployed backend is required.** The signed APK plays offline immediately. To enable cloud features, a parent enters their own OpenAI API key in the native Android connection dialog. The app then makes real API calls and reports each service's result and resource IDs.
 
-No key was available during development, so live account access and inference remain unverified. Compile, signature, gameplay and fixture tests do not establish live activation.
+**v0.2.1 fixes Decisions response parsing:** the documented response has `answers`, `model` and `usage`, without a required `id`. The former parser incorrectly rejected a valid answer. Readiness now follows the validated answer; the HTTP `x-request-id` is optional diagnostic evidence. Tests cover this exact response shape, refusals, malformed answers and failed retests. Network timeout, DNS, TLS and JSON errors now have distinct messages.
+
+The user's v0.2.0 screenshot showed a generated mission, a validated/closed environment and a created Vault. Decisions failed in that version. No key was available to the builder; live verification of this Decisions fix remains pending on the user's phone. Install as an update, then tap **TESTAR SERVIÇOS**. Existing key and resource settings are preserved.
 
 ## Install and connect
 
-1. Install `LUMI-Orbit-v0.2.0.apk` on Android 9 or newer. It uses the same signing certificate as v0.1.0 and can update it.
+1. Install `LUMI-Orbit-v0.2.1.apk` on Android 9 or newer. It uses the same signing certificate as v0.1.0 and can update it.
 2. Open **Configurações → Área dos responsáveis**, answer the parent gate, then choose **CONECTAR OPENAI**.
 3. Enter your API key in the protected native Android dialog and select **Conectar e testar**. API access, internet and account billing are required.
 4. The app tests Decisions, creates or reuses a Vault, and prepares a mission with a managed Session and hosted Environment. The panel shows errors if the account lacks access or quota.
@@ -63,7 +65,7 @@ python3 -m unittest discover -s tests -v  # legacy backend regression tests
 bash scripts/build.sh
 ```
 
-Output: `build/LUMI-Orbit-v0.2.0.apk`. CI requires the original signing secrets to produce compatible updates. A browser preview can serve `app/src/main/assets/`; the secure native connection dialog exists only in the APK.
+Output: `build/LUMI-Orbit-v0.2.1.apk`. CI requires the original signing secrets to produce compatible updates. A browser preview can serve `app/src/main/assets/`; the secure native connection dialog exists only in the APK.
 
 ## Verification boundary
 
@@ -74,6 +76,6 @@ Output: `build/LUMI-Orbit-v0.2.0.apk`. CI requires the original signing secrets 
 
 ## Official contracts
 
-Checked 2026-10-07: [Decisions](https://developers.openai.com/api/docs/guides/decisions), [Agents quickstart](https://developers.openai.com/api/docs/guides/agents-api/quickstart), [Sessions](https://developers.openai.com/api/docs/guides/agents-api/sessions), [Events](https://developers.openai.com/api/docs/guides/agents-api/sessions/events), [Hosted environments](https://developers.openai.com/api/docs/guides/agents-api/environments/openai-hosted), [Vaults](https://developers.openai.com/api/docs/guides/agents-api/tools/vaults).
+Checked 2026-10-08: [Decisions response schema](https://developers.openai.com/api/reference/resources/decisions/methods/create), [Decisions](https://developers.openai.com/api/docs/guides/decisions), [Agents quickstart](https://developers.openai.com/api/docs/guides/agents-api/quickstart), [Sessions](https://developers.openai.com/api/docs/guides/agents-api/sessions), [Events](https://developers.openai.com/api/docs/guides/agents-api/sessions/events), [Hosted environments](https://developers.openai.com/api/docs/guides/agents-api/environments/openai-hosted), [Vaults](https://developers.openai.com/api/docs/guides/agents-api/tools/vaults).
 
 MIT. Original vector art and synthesized audio.

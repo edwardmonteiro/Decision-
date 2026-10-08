@@ -23,5 +23,5 @@ with zipfile.ZipFile(p/'unsigned.apk','a',zipfile.ZIP_DEFLATED) as z:
  for f in (p/'dex').glob('*.dex'):z.write(f,f.name)
 PY
 "$BUILD_TOOLS/zipalign" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
-"$BUILD_TOOLS/apksigner" sign --ks "$LUMI_KEYSTORE" --ks-pass env:LUMI_STOREPASS --ks-key-alias lumi --out "$OUT/LUMI-Orbit-v0.2.0.apk" "$OUT/aligned.apk"
-"$BUILD_TOOLS/apksigner" verify --verbose "$OUT/LUMI-Orbit-v0.2.0.apk"
+"$BUILD_TOOLS/apksigner" sign --ks "$LUMI_KEYSTORE" --ks-pass env:LUMI_STOREPASS --ks-key-alias lumi --out "$OUT/LUMI-Orbit-v0.2.1.apk" "$OUT/aligned.apk"
+"$BUILD_TOOLS/apksigner" verify --verbose "$OUT/LUMI-Orbit-v0.2.1.apk"

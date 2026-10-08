@@ -17,9 +17,20 @@ public final class DirectAiTest {
     static final String VALID="{\"mission_id\":\"garden\",\"star_lanes\":[0.2,0.4,0.6,0.8,0.5,0.3,0.4,0.7],\"asteroid_speed\":0.9}";
     static class Wire implements DirectAi.Transport {
         AtomicInteger decisions=new AtomicInteger(),deletes=new AtomicInteger(),vaults=new AtomicInteger();
-        JSONObject sessionBody,decisionBody; boolean blocked,invalid,waiting; int pages;
+        JSONObject sessionBody,decisionBody; boolean blocked,invalid,waiting; String requestId="",decisionProblem=""; int pages;
         public JSONObject call(String path,String method,JSONObject body)throws Exception{
-            if(path.equals("/decisions")){decisions.incrementAndGet();decisionBody=body;if(blocked)throw new DirectAi.ApiError(403,"Sem permissão (HTTP 403)");return new JSONObject("{\"id\":\"dec_fixture\",\"answers\":[{\"type\":\"choice\",\"name\":\"pace\",\"choice\":\"bright\"}]}");}
+            if(path.equals("/decisions")){
+                decisions.incrementAndGet();decisionBody=body;
+                if(blocked)throw new DirectAi.ApiError(403,"Sem permissão (HTTP 403)");
+                if(decisionProblem.equals("timeout"))throw new java.net.SocketTimeoutException("private diagnostic must not leak");
+                JSONObject result=new JSONObject(java.nio.file.Files.readString(java.nio.file.Path.of("tests/fixtures/decision-choice.json")));
+                if(!requestId.isEmpty())result.put("_request_id",requestId);
+                JSONObject answer=result.getJSONArray("answers").getJSONObject(0);
+                if(decisionProblem.equals("refusal"))answer.put("type","refusal");
+                if(decisionProblem.equals("unknown"))answer.put("choice","unbounded_speed");
+                if(decisionProblem.equals("missing"))result.remove("answers");
+                return result;
+            }
             if(path.equals("/vaults")){vaults.incrementAndGet();return new JSONObject("{\"id\":\"vault_fixture\"}");}
             if(path.equals("/vaults/vault_fixture"))return new JSONObject("{\"id\":\"vault_fixture\"}");
             if(path.equals("/agents/sessions")&&method.equals("POST")){sessionBody=body;return new JSONObject("{\"id\":\"sess_fixture\",\"environment\":{\"id\":\"env_fixture\"}}");}
@@ -38,12 +49,26 @@ public final class DirectAiTest {
         check(!ai.health().getBoolean("ready"),"No false ready before live evidence");
         ai.activate();waitDone(ai);
         JSONObject health=ai.health();check(health.getBoolean("ready"),"All services verified with transport responses");
+        check(health.getString("request_id").isEmpty(),"no synthetic provider ID when header absent");
         check(wire.vaults.get()==1,"vault provisioned once");check(wire.deletes.get()==1,"sandbox session cleaned");
         check(wire.sessionBody.getJSONObject("environment").getJSONObject("network").getString("access").equals("disabled"),"network disabled");
         check(wire.sessionBody.getJSONArray("vault_ids").getString(0).equals("vault_fixture"),"vault attached");
         check(wire.decisionBody.getString("model").equals("gpt-6-luna"),"Decisions model");
         check(wire.decisionBody.getJSONArray("questions").getJSONObject(0).getString("type").equals("choice"),"typed choice");
         check(health.getString("decisions").endsWith("steady"),"difficulty clamped for beginner");
+        wire.requestId="req_header_fixture";
+        ai.activate();waitDone(ai);
+        check(ai.health().getBoolean("ready"),"HTTP request ID is optional diagnostic evidence");
+        check(ai.health().getString("request_id").equals("req_header_fixture"),"HTTP request ID preserved");
+        for(String problem:new String[]{"refusal","unknown","missing","timeout"}){
+            wire.decisionProblem=problem; ai.activate();waitDone(ai);
+            check(!ai.health().getBoolean("ready"),"failed retest clears previous success: "+problem);
+            check(ai.health().getString("request_id").isEmpty(),"no stale request ID: "+problem);
+            if(problem.equals("timeout"))check(ai.health().getString("decisions").equals("Tempo de resposta excedido · tente novamente"),"timeout distinguished without leaking exception");
+        }
+        wire.decisionProblem=""; ai.activate();waitDone(ai);
+        check(ai.health().getBoolean("ready"),"retest recovers without replacing key or vault");
+        check(wire.vaults.get()==1,"retest reuses vault");
         JSONObject run=ai.handle("/v1/runs","POST",new JSONObject());String id=run.getString("id");
         check(run.getJSONObject("mission").getJSONArray("star_lanes").length()==8,"generated layout consumed");
         String route="/v1/runs/"+id+"/decision";JSONObject answer=ai.handle(route,"POST",summary(5));

@@ -40,7 +40,7 @@ public final class DirectAi {
     }
     private synchronized void status(String service, String value) { store.put("status_" + service, value); }
     public synchronized JSONObject health() throws Exception {
-        JSONObject out = obj("mode", "direct_openai", "version", "0.2.0",
+        JSONObject out = obj("mode", "direct_openai", "version", "0.2.1",
             "decisions", fallback(store.get("status_decisions"), "Não testado"),
             "vault", fallback(store.get("status_vault"), "Não criado"),
             "session", fallback(store.get("status_session"), "Não iniciada"),
@@ -50,7 +50,7 @@ public final class DirectAi {
             "updated_at", store.get("updated_at"), "mission_ready", !store.get("mission").isEmpty(),
             "busy", activating.get() || (planning != null && !planning.isDone()),
             "daily_decisions", count("decisions"), "daily_sessions", count("sessions"));
-        out.put("ready", !store.get("decision_id").isEmpty() && !store.get("vault_id").isEmpty()
+        out.put("ready", store.get("decision_validated").equals("true") && !store.get("vault_id").isEmpty()
                 && store.get("environment_validated").equals("true") && store.get("mission_validated").equals("true")
                 && store.get("status_decisions").startsWith("Chamada real OK") && store.get("status_vault").startsWith("Criado"));
         return out;
@@ -71,12 +71,17 @@ public final class DirectAi {
     }
     private static String safeError(Exception e) {
         if (e instanceof ApiError) return e.getMessage();
+        if (e instanceof java.net.SocketTimeoutException) return "Tempo de resposta excedido · tente novamente";
+        if (e instanceof java.net.UnknownHostException) return "Não foi possível localizar a OpenAI · confira a conexão";
+        if (e instanceof javax.net.ssl.SSLException) return "Falha na conexão segura com a OpenAI";
+        if (e instanceof org.json.JSONException) return "Formato de resposta inesperado da OpenAI";
         return "Falha de conexão ou resposta inválida";
     }
     public JSONObject activate() throws Exception {
         if (!activating.compareAndSet(false, true)) return health();
         try {
             store.remove("decision_id");
+            store.remove("decision_validated");
             status("decisions", "Testando chamada real…");
             try {
                 JSONObject probe = obj("wave", 1, "stars", 0, "hits", 0, "shots", 0, "cleared", 0, "elapsed", 0);
@@ -228,7 +233,9 @@ public final class DirectAi {
         }
     }
     private JSONObject decision(JSONObject summary) throws Exception {
-        validateSummary(summary); reserve("decisions", 24);
+        validateSummary(summary);
+        store.remove("decision_validated"); store.remove("decision_id");
+        reserve("decisions", 24);
         JSONObject response = transport.call("/decisions", "POST", obj("model", "gpt-6-luna", "input", summary.toString(), "questions", new JSONArray().put(obj(
             "type", "choice", "name", "pace", "instructions", "Choose gameplay pace for a young child using these aggregate metrics. Prefer gentle after collisions. Bright only with at least four collected stars and no hits. Never optimize session duration.",
             "choices", new JSONArray().put(obj("value", "gentle", "description", "Slow and forgiving"))
@@ -239,7 +246,11 @@ public final class DirectAi {
             JSONObject answer = answers.getJSONObject(i); String choice = answer.optString("choice");
             if (answer.optString("type").equals("choice") && answer.optString("name").equals("pace") && (choice.equals("gentle") || choice.equals("steady") || choice.equals("bright"))) {
                 if (choice.equals("bright") && (summary.getInt("stars")<4 || summary.getInt("hits")>0)) choice="steady";
-                String id = response.getString("id"); store.put("decision_id", id);
+                // Decisions returns answers/model/usage, not a resource id.
+                // The native transport may attach the HTTP x-request-id for diagnostics.
+                String id = response.optString("_request_id", "");
+                if (!id.matches("[A-Za-z0-9_-]{1,160}")) id = "";
+                store.put("decision_id", id); store.put("decision_validated", "true");
                 status("decisions", "Chamada real OK · " + choice); store.put("updated_at", Long.toString(System.currentTimeMillis()));
                 return obj("choice", choice, "source", "openai_decisions", "provider_id", id);
             }
