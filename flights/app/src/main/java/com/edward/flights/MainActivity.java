@@ -41,6 +41,8 @@ public class MainActivity extends Activity {
     private volatile String apiKey="";
     private volatile HttpsURLConnection liveConnection;
     private volatile boolean destroyed,configuring,foreground;
+    private volatile long streamRetryAt;
+    private volatile String subscribedSession="";
     private PermissionRequest microphonePermission;
     private static final int MICROPHONE_REQUEST=41;
     private final AtomicBoolean streamRunning=new AtomicBoolean();
@@ -99,17 +101,20 @@ public class MainActivity extends Activity {
         byte[] digest=MessageDigest.getInstance("SHA-256").digest(key.getBytes(StandardCharsets.UTF_8));StringBuilder h=new StringBuilder();for(byte b:digest)h.append(String.format("%02x",b));String prefix="oa_"+h.substring(0,16)+"_";
         return new FlightAgent.Store(){public String get(String k){return prefs.getString(prefix+k,"");}public void put(String k,String v){prefs.edit().putString(prefix+k,v).commit();}};
     }
-    private FlightAgent createAgent(String key)throws Exception{return new FlightAgent((p,m,b,i)->call(key,p,m,b,i),accountStore(key));}
+    private FlightAgent createAgent(String key)throws Exception{return new FlightAgent(new FlightAgent.Transport(){
+        public JSONObject call(String p,String m,JSONObject b,String i)throws Exception{return MainActivity.this.call(key,p,m,b,i);}
+        public void watch(String id){streamRetryAt=0;startStream(id,true);}
+    },accountStore(key));}
     private VoiceAgent createVoice(String key)throws Exception{return new VoiceAgent((p,m,b,i)->call(key,p,m,b,i),accountStore(key));}
     private HttpsURLConnection connection(String key,String path) throws Exception {
-        if(!path.matches("/(decisions|live/sessions(/[A-Za-z0-9_-]+/hangup)?|vaults(/[A-Za-z0-9_-]+)?|agents/(sessions|environments)(/[A-Za-z0-9_-]+)?(/(events|turns|items))?)(\\?[A-Za-z0-9_=&-]+)?"))throw new IOException("Invalid API path");
+        FlightContracts.apiPath(path);
         HttpsURLConnection c=(HttpsURLConnection)new URL("https://api.openai.com/v1"+path).openConnection();c.setInstanceFollowRedirects(false);c.setConnectTimeout(15000);c.setReadTimeout(45000);
         c.setRequestProperty("Authorization","Bearer "+key);c.setRequestProperty("OpenAI-Beta","agents=v1");return c;
     }
     private JSONObject call(String key,String path,String method,JSONObject body,String idempotencyKey)throws Exception {
         HttpsURLConnection c=connection(key,path);
         try{
-            c.setRequestMethod(method);c.setRequestProperty("Content-Type","application/json");
+            c.setRequestMethod(method);if(method.equals("GET"))c.setReadTimeout(15000);c.setRequestProperty("Content-Type","application/json");
             if(idempotencyKey!=null)c.setRequestProperty("Idempotency-Key",idempotencyKey);
             if(body!=null){c.setDoOutput(true);try(OutputStream out=c.getOutputStream()){out.write(body.toString().getBytes(StandardCharsets.UTF_8));}}
             int status=c.getResponseCode();if(status<200||status>=300){
@@ -135,28 +140,44 @@ public class MainActivity extends Activity {
     private JSONObject withVoice(JSONObject value)throws Exception{VoiceAgent v=voice;if(v!=null)value.put("voice",v.snapshot());return value;}
     private void push(){FlightAgent a=ai;if(a!=null)try{js("DecisionState",withVoice(a.snapshot()).toString());}catch(Exception ignored){}}
     private void result(String id,JSONObject response){runOnUiThread(()->{if(web!=null&&!destroyed)web.evaluateJavascript("window.DecisionNativeResult("+JSONObject.quote(id)+","+JSONObject.quote(response.toString())+")",null);});}
-    private void startStream(){
-        FlightAgent a=ai;if(a==null)return;String id=a.streamSession();if(id.isEmpty()||!streamRunning.compareAndSet(false,true))return;
+    private void startStream(){FlightAgent a=ai;if(a!=null)startStream(a.streamSession(),false);}
+    private void startStream(String id,boolean beforeInput){
+        FlightAgent a=ai;if(a==null||id.isEmpty()||destroyed||System.currentTimeMillis()<streamRetryAt)return;
+        if(streamRunning.get()&&!id.equals(subscribedSession))stopStream();
+        if(!streamRunning.compareAndSet(false,true))return;
+        subscribedSession=id;
+        CountDownLatch ready=new CountDownLatch(1);
         streamExecutor.execute(()->{
             HttpsURLConnection c=null;
             try{
                 c=connection(apiKey,"/agents/sessions/"+FlightContracts.resource(id)+"/events?stream=true");liveConnection=c;c.setReadTimeout(65000);c.setRequestProperty("Accept","text/event-stream");
-                if(c.getResponseCode()!=200)return;a.streamStatus(true);push();
+                int status=c.getResponseCode();
+                if(status!=200){String raw="";try{raw=OpenAiErrors.readBody(c.getErrorStream(),16384);}catch(Exception ignored){}
+                    throw OpenAiErrors.fromResponse(status,"/agents/sessions/"+id+"/events",raw,c.getHeaderField("x-request-id"),apiKey);}
+                if(!id.equals(a.streamSession()))return;
+                a.streamStatus(true);ready.countDown();a.streamConnected();push();
+                boolean endedOnRoot=false;
                 try(BufferedReader reader=new BufferedReader(new InputStreamReader(c.getInputStream(),StandardCharsets.UTF_8))){
                     String line;StringBuilder data=new StringBuilder();long lastPush=0;
-                    while(!destroyed&&ai==a&&!a.streamSession().isEmpty()&&(line=reader.readLine())!=null){
+                    while(!destroyed&&ai==a&&id.equals(a.streamSession())&&(line=reader.readLine())!=null){
+                        if(ai!=a||!id.equals(a.streamSession()))break;
                         if(line.isEmpty()){
                             if(data.length()>0){String value=data.toString();data.setLength(0);if(value.equals("[DONE]"))break;
                                 JSONObject event=new JSONObject(value);a.onEvent(event);String type=event.optString("type");long now=System.currentTimeMillis();
-                                if(now-lastPush>350||type.endsWith("completed")||type.endsWith("requires_action")){push();lastPush=now;}
-                                JSONObject turn=event.optJSONObject("turn");if(turn!=null&&turn.isNull("subagent_id")&&(type.endsWith(".completed")||type.endsWith(".failed")||type.endsWith(".cancelled"))){push();break;}
+                                if(now-lastPush>350||type.endsWith("completed")||type.endsWith("requires_action")||type.endsWith("failed")||type.equals("error")){push();lastPush=now;}
+                                JSONObject turn=event.optJSONObject("turn");if(turn!=null&&turn.isNull("subagent_id")&&turn.optString("id").equals(a.snapshot().optString("last_turn"))&&(type.endsWith(".completed")||type.endsWith(".failed")||type.endsWith(".cancelled"))){endedOnRoot=true;push();break;}
                             }
                         }else if(line.startsWith("data:")){if(data.length()>0)data.append('\n');data.append(line.substring(5).trim());if(data.length()>6500000)throw new IOException("Event too large");}
                     }
                 }
-            }catch(Exception ignored){/* Saved-session polling recovers missed events; never resend input here. */}
-            finally{a.streamStatus(false);if(c!=null)c.disconnect();liveConnection=null;streamRunning.set(false);push();}
+                if(!endedOnRoot&&id.equals(a.streamSession())){streamRetryAt=System.currentTimeMillis()+15000;a.streamFailure("O acompanhamento ao vivo foi interrompido. O andamento será consultado na mesma sessão.",null);}
+            }catch(Exception e){
+                ready.countDown();streamRetryAt=System.currentTimeMillis()+15000;
+                try{if(ai==a&&id.equals(a.streamSession()))a.streamFailure("Sem acompanhamento ao vivo. "+safeError(e),e instanceof FlightAgent.ApiError?(FlightAgent.ApiError)e:null);}catch(Exception ignored){}
+            }
+            finally{ready.countDown();a.streamStatus(false);if(c!=null)c.disconnect();liveConnection=null;subscribedSession="";streamRunning.set(false);push();}
         });
+        if(beforeInput)try{ready.await(2,TimeUnit.SECONDS);}catch(InterruptedException e){Thread.currentThread().interrupt();}
     }
     private void stopStream(){HttpsURLConnection c=liveConnection;if(c!=null)c.disconnect();}
     private void connect(){

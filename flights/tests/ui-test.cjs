@@ -61,13 +61,34 @@ function check(value,message){assert.ok(value,message);checks++;}
    if(operation==='approve')window.fixture={...window.fixture,phase:'browsing',approvals:[]};
    if(operation==='cancel')window.fixture={...window.fixture,phase:'cancelled',running:false,error:'Busca interrompida.',completed_at:Date.now()};
    if(operation==='close')window.fixture={configured:true,phase:'idle',running:false,offers:[]};
-   setTimeout(()=>window.DecisionNativeResult(id,JSON.stringify(window.fixture)),0);
+   if(operation==='poll'&&window.pollError){const answer={error:window.pollError,state:window.fixture};setTimeout(()=>window.DecisionNativeResult(id,JSON.stringify(answer)),window.pollDelay||0);return;}
+   if(operation==='poll'&&window.recoverPoll)window.fixture={...window.fixture,poll_blocked:false,poll_warning:'',phase:'browsing',last_poll_at:Date.now(),last_activity_at:Date.now(),progress:'Navegador conectado. O agente está pesquisando sua viagem.'};
+   setTimeout(()=>window.DecisionNativeResult(id,JSON.stringify(window.fixture)),operation==='poll'?window.pollDelay||0:0);
   }};
  });
  await p.goto(url);await p.waitForFunction(()=>document.querySelector('#connectionStatus').textContent==='Conexão testada');
  await p.locator('#searchButton').click();await p.waitForFunction(()=>document.querySelector('#progressArea').hidden===false);
  check(await p.locator('#workView').isVisible(),'Search displays work');await p.locator('#homeButton').click();await p.locator('#searchButton').click();check(await p.locator('#workView').isVisible(),'Return to running search without resubmission');
  check((await p.evaluate(()=>window.calls.filter(c=>c.operation==='search'))).length===1,'Single search submission');
+ await p.evaluate(()=>{window.fixture={...window.fixture,phase:'starting',environment_status:'pending',activity:'',progress:'A OpenAI está preparando o navegador hospedado.',started_at:Date.now()-64000,last_activity_at:0,last_poll_at:Date.now(),poll_blocked:true};window.DecisionState(JSON.stringify(window.fixture));});
+ check((await p.locator('#activityLabel').textContent()).includes('preparando'),'Preparation caption uses confirmed environment state');
+ check(await p.locator('#progressWarning').isVisible()&&(await p.locator('#progressWarning').textContent()).includes('sem nova atividade'),'64 seconds without activity shows persistent guidance');
+ check((await p.locator('#lastUpdateLabel').textContent()).includes('Sessão consultada'),'Confirmed consultation time is visible');
+ await p.evaluate(()=>{window.fixture={...window.fixture,phase:'recovering',poll_warning:'A OpenAI rejeitou a consulta (400).',progress:'Não foi possível confirmar o andamento da busca.'};window.pollError='A OpenAI rejeitou a consulta (400).';window.DecisionState(JSON.stringify(window.fixture));});
+ check((await p.locator('#progressLabel').textContent())==='Acompanhamento interrompido'&&await p.locator('#progressDot.paused').count()===1,'Permanent polling failure stops animated progress');
+ const beforeBlocked=await p.evaluate(()=>window.calls.filter(c=>c.operation==='poll').length);
+ await p.waitForTimeout(1800);check(await p.evaluate(()=>window.calls.filter(c=>c.operation==='poll').length)===beforeBlocked,'Permanent failure stops automatic polling');
+ await p.locator('#checkProgressButton').click();await p.waitForFunction(()=>document.querySelector('#toast').textContent.includes('(400)'));
+ check((await p.locator('#progressWarning').textContent()).includes('(400)'),'Polling error persists after callback rejects');
+ await p.evaluate(()=>{window.pollError='';window.recoverPoll=true;window.pollDelay=220;});
+ await p.locator('#checkProgressButton').click();check(await p.locator('#checkProgressButton').isDisabled(),'Prevent simultaneous manual consultations');
+ await p.waitForFunction(()=>!document.querySelector('#checkProgressButton').disabled);
+ check(await p.locator('#progressWarning').isHidden()&&(await p.locator('#activityLabel').textContent()).includes('conectado'),'Same-session consultation clears recovered error');
+ check((await p.evaluate(()=>window.calls.filter(c=>c.operation==='search'))).length===1,'Manual consultation never resubmits the trip');
+ await p.evaluate(()=>{window.recoverPoll=false;window.pollDelay=0;window.fixture={...window.fixture,phase:'recovering',poll_blocked:true,poll_warning:'Sem atualização confirmada. Confira a conexão.',progress:'Não foi possível confirmar o andamento da busca.'};window.DecisionState(JSON.stringify(window.fixture));});
+ await p.evaluate(()=>document.querySelector('#toast').hidden=true);await p.screenshot({path:root+'/connection-recovery-fixture.png',fullPage:true});
+ for(const width of [320,360,393,540,1280]){await p.setViewportSize({width,height:830});check(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Recovery controls fit '+width);}
+ await p.setViewportSize({width:393,height:830});await p.evaluate(()=>{window.fixture={...window.fixture,poll_blocked:false,poll_warning:'',last_activity_at:Date.now()};});
  await p.evaluate(()=>{window.fixture={...window.fixture,phase:'permission',approvals:[{request_id:'req_fixture',origin:'https://www.google.com',reason:'Pesquisar viagem',allowed:true}]};window.DecisionState(JSON.stringify(window.fixture));});
  check(await p.locator('#approvalDialog').isVisible(),'Origin approval displayed');await p.locator('#approveButton').click();await p.waitForFunction(()=>!document.querySelector('#approvalDialog').open);
  check(await p.evaluate(()=>window.calls.some(c=>c.operation==='approve'&&c.body.request_id==='req_fixture')),'Approval targets request');

@@ -19,6 +19,19 @@ public final class FlightContracts {
     public static String resource(String s) throws Exception {
         if(s==null||!s.matches("[A-Za-z0-9_-]{1,200}"))throw new Exception("Invalid resource ID");return s;
     }
+    public static void apiPath(String path) throws Exception {
+        if(!path.matches("/(decisions|live/sessions(/[A-Za-z0-9_-]+/hangup)?|vaults(/[A-Za-z0-9_-]+)?|agents/(sessions|environments)(/[A-Za-z0-9_-]+)?(/(events|turns(/[A-Za-z0-9_-]+/items)?|items))?)(\\?[A-Za-z0-9_=&-]+)?"))throw new java.io.IOException("Invalid API path");
+        int query=path.indexOf('?');if(query<0)return;
+        Set<String> names=new HashSet<>();
+        for(String pair:path.substring(query+1).split("&")){
+            String[] p=pair.split("=",2);if(p.length!=2||!names.add(p[0]))throw new java.io.IOException("Invalid query");
+            if(p[0].equals("stream")&&path.substring(0,query).endsWith("/events")&&p[1].equals("true"))continue;
+            if(p[0].equals("order")&&(p[1].equals("asc")||p[1].equals("desc")))continue;
+            if(p[0].equals("limit")&&p[1].matches("[0-9]{1,3}")&&Integer.parseInt(p[1])>=1&&Integer.parseInt(p[1])<=100)continue;
+            if(p[0].equals("after")){resource(p[1]);continue;}
+            throw new java.io.IOException("Unsupported query parameter");
+        }
+    }
     public static String text(JSONObject in,String field,int limit) throws Exception {
         Object v=in.get(field);if(!(v instanceof String))throw new Exception("Invalid text");
         String s=((String)v).trim();if(s.isEmpty()||s.length()>limit)throw new Exception("Invalid text length");return s;

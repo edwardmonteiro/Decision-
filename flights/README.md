@@ -1,4 +1,4 @@
-# Decision Flights · Android v0.1.1
+# Decision Flights · Android v0.1.2
 
 Buscador minimalista de passagens com navegador hospedado na OpenAI. A interface
 roda no celular; a navegação usa Agents com `computer_use`, um Environment
@@ -7,7 +7,7 @@ GPT Live 1 recebe sua voz e conversa em português brasileiro. Sem servidor pró
 
 ## Instalar e conectar
 
-1. Instale `Decision-Flights-v0.1.1.apk` em Android 9 ou superior.
+1. Instale `Decision-Flights-v0.1.2.apk` em Android 9 ou superior.
 2. Abra a engrenagem e toque **Conectar OpenAI**. Insira sua chave no diálogo
    nativo protegido. A chave não passa pelo JavaScript.
 3. **Conectar e testar** faz uma chamada real a Decisions e cria ou reutiliza um
@@ -49,7 +49,28 @@ permitem recuperar o encerramento depois de uma queda ou reinício.
 
 A conta precisa ter acesso a `gpt-live-1`. Voz e backend têm cobrança de API.
 
-## Correção de Decisions nesta atualização
+## Correção da espera nesta atualização
+
+A leitura de atividade passou a usar
+`GET /agents/sessions/{session_id}/turns/{turn_id}/items`, com `order`, `limit` e
+`after`. O parâmetro `turn_id` era enviado indevidamente na query de itens da
+sessão. A resposta final precisa pertencer à tarefa raiz atual; mensagens de
+outras tarefas e subagentes não viram tarifas. A leitura segue a paginação.
+
+O acompanhamento tenta conectar o SSE antes de enviar a tarefa e recupera
+eventos perdidos por consulta. Erros HTTP, falhas de sessão, navegador ou
+tarefa deixam de ser ignorados. Falha do stream não é tratada como falha da
+busca: a mesma sessão continua sendo consultada. Falhas permanentes da
+consulta suspendem tentativas automáticas; falhas transitórias usam espera
+progressiva. O estado publicado pode ser lido sem bloquear atrás da rede.
+
+A tela mostra a etapa confirmada, avisos persistentes, hora da consulta e
+**Consultar andamento** durante a busca. Após 30 segundos sem nova atividade,
+mostra orientação para conferir o andamento. O contador inclui a preparação
+inicial; ele não mede apenas a navegação. Voz também recebe avisos de conexão.
+Nenhuma recuperação cria outra sessão ou reenvia o pedido automaticamente.
+
+## Correção anterior de Decisions
 
 O teste de conexão e a comparação enviavam `label` nas opções de escolha.
 A API exige `{value, description}`. Ambos os caminhos foram corrigidos e os
@@ -117,10 +138,12 @@ CHROMIUM_EXECUTABLE_PATH=/path/to/chromium node flights/tests/ui-test.cjs
 O alias da chave de assinatura é `flights`. Guarde o backup privado da assinatura
 para instalar futuras versões como atualização. Nunca envie esse backup ao git.
 
-Validação realizada: compilação e assinatura Android; 87 verificações de
-contrato/ciclo de vida e 42 de GPT Live com fixtures; 54 verificações da
+Validação realizada: compilação e assinatura Android; 189 verificações de
+contrato/ciclo de vida e 45 de GPT Live com fixtures; 68 verificações da
 interface em Chromium local, com larguras 320, 360, 393, 540 e 1280 px.
-Inclui permissão negada, transcrição segura, silêncio/reativação, despacho de
+Inclui consulta rejeitada, recuperação sem duplicação, paginação, falhas
+de navegador/sessão, estado legível durante espera de rede, permissão negada,
+transcrição segura, silêncio/reativação, despacho de
 função duplicada, continuação do Responses, fechamento e saída durante handshake.
 Os testes não são chamadas reais. Não havia chave de API disponível ao
 desenvolvimento. Busca real, áudio em aparelho físico, latência e cobrança
@@ -134,6 +157,8 @@ os serviços reais.
 - [Computer use e navegador hospedado](https://developers.openai.com/api/docs/guides/agents-api/tools/computer-use)
 - [Configuração do agente](https://developers.openai.com/api/docs/guides/agents-api/configuration)
 - [Sessions](https://developers.openai.com/api/docs/guides/agents-api/sessions)
+- [Itens de uma tarefa](https://developers.openai.com/api/reference/resources/beta/subresources/agents/subresources/sessions/subresources/turns/subresources/items/methods/list)
+- [Eventos e recuperação](https://developers.openai.com/api/docs/guides/agents-api/sessions/events)
 - [Environment](https://developers.openai.com/api/docs/guides/agents-api/environments/openai-hosted)
 - [Vaults](https://developers.openai.com/api/docs/guides/agents-api/tools/vaults)
 - [Decisions](https://developers.openai.com/api/docs/guides/decisions)

@@ -19,14 +19,23 @@ public final class FlightAgentTest {
         public void put(String k,String v){values.put(k,v);}
     }
     static class Fake implements FlightAgent.Transport {
-        int creates,submissions,ranks,deletes,cancels,approvalReplies;
+        int creates,submissions,ranks,deletes,cancels,approvalReplies,watches;
         boolean failCreate,failTurns,failSend,acceptFailedSend,failRank,failProbe;
         String sessionId="ses_fixture",turnId="",turnStatus="running",finalText="",searchId="",choice="f1";
         double confidence=.94;
         JSONArray actions=new JSONArray();
+        JSONArray foreignItems=new JSONArray();
+        JSONArray[] itemPages;
+        String environmentStatus="connected";
+        boolean noItems;
+        Exception itemFailure;
+        Exception sendFailure;
+        java.util.concurrent.CountDownLatch pollEntered,pollRelease;
         final List<String> keys=new ArrayList<>(),inputs=new ArrayList<>();
         JSONObject lastCreate,lastReply;
+        @Override public void watch(String id){check(id.equals(sessionId),"Subscribe to the saved session");watches++;}
         @Override public JSONObject call(String path,String method,JSONObject body,String key)throws Exception {
+            apiPath(path);
             if(path.equals("/vaults")&&method.equals("POST"))return obj("id","vault_fixture");
             if(path.startsWith("/vaults/"))return obj("id","vault_fixture");
             if(path.equals("/agents/sessions")&&method.equals("POST")){
@@ -35,11 +44,13 @@ public final class FlightAgentTest {
                 return obj("id",sessionId,"environment",obj("id","env_fixture"));
             }
             if(path.startsWith("/agents/sessions?"))return obj("data",new JSONArray().put(obj("id",sessionId,"metadata",obj("client_search_id",searchId),"environment",obj("id","env_fixture"))));
-            if(path.startsWith("/agents/environments/"))return obj("id","env_fixture","status","connected");
+            if(path.startsWith("/agents/environments/"))return obj("id","env_fixture","status",environmentStatus);
             if(path.endsWith("/events")){
                 JSONObject event=body.getJSONArray("events").getJSONObject(0);String type=event.getString("type");
                 if(type.equals("agent.session.input.message")){
+                    check(watches==submissions+1,"Subscribe before submitting each task");
                     submissions++;keys.add(key);inputs.add(body.toString());
+                    if(sendFailure!=null){Exception e=sendFailure;sendFailure=null;throw e;}
                     if(!failSend||acceptFailedSend){turnId="turn_"+submissions;turnStatus="running";}
                     if(failSend){failSend=false;throw new SocketTimeoutException();}
                 }else if(type.equals("agent.session.input.cancel"))cancels++;
@@ -51,12 +62,18 @@ public final class FlightAgentTest {
                 return obj("data",turnId.isEmpty()?new JSONArray():new JSONArray().put(obj("id",turnId,"subagent_id",JSONObject.NULL,"status",turnStatus)));
             }
             if(path.contains("/items?")){
+                check(path.startsWith("/agents/sessions/"+sessionId+"/turns/"+turnId+"/items?"),"Use documented per-turn items endpoint");
+                if(itemFailure!=null){Exception e=itemFailure;itemFailure=null;throw e;}
+                if(itemPages!=null){int page=path.contains("after=item_page_0")?1:0;return obj("data",itemPages[page],"has_more",page==0,"last_id","item_page_"+page);}
+                if(noItems)return obj("data",new JSONArray(),"has_more",false);
                 JSONArray data=new JSONArray().put(obj("id","item_screen","type","computer_use_call","turn_id",turnId,"title","Conferindo as datas","status","completed","output",obj("type","computer_screenshot","image_url","data:image/jpeg;base64,fixture")));
                 if(!finalText.isEmpty())data.put(obj("id","item_final","type","message","turn_id",turnId,"role","assistant","phase","final_answer","content",new JSONArray().put(obj("type","output_text","text",finalText))));
+                for(int i=0;i<foreignItems.length();i++)data.put(foreignItems.get(i));
                 return obj("data",data,"has_more",false);
             }
             if(path.startsWith("/agents/sessions/")){
                 if(method.equals("DELETE")){deletes++;return new JSONObject();}
+                if(pollEntered!=null){pollEntered.countDown();if(!pollRelease.await(3,java.util.concurrent.TimeUnit.SECONDS))throw new AssertionError("Blocked fixture not released");}
                 return obj("id",sessionId,"status",turnStatus.equals("running")?"in_progress":"idle","environment",obj("id","env_fixture"),"required_actions",actions);
             }
             if(path.equals("/decisions")){
@@ -129,6 +146,9 @@ public final class FlightAgentTest {
         check(!d.poll().getJSONObject("ranking").has("offer_id"),"Do not label a low-confidence decision as best");
     }
     static void recovery()throws Exception {
+        Fake rejected=new Fake();rejected.sendFailure=new FlightAgent.ApiError(400,"A OpenAI rejeitou o envio (400).");FlightAgent invalid=new FlightAgent(rejected,new Memory());
+        rejects(()->invalid.begin(itinerary()),"Definitive input rejection is propagated");
+        check(!invalid.snapshot().getBoolean("running")&&invalid.snapshot().getString("phase").equals("error")&&invalid.snapshot().getString("error").contains("400"),"Rejected input cannot leave a fake running search");
         Fake dropped=new Fake();dropped.failSend=true;Memory m=new Memory();FlightAgent a=new FlightAgent(dropped,m);
         rejects(()->a.begin(itinerary()),"Simulated lost message acknowledgment");
         check(a.snapshot().has("pending_input"),"Retain exact pending input");a.retryMessage();
@@ -169,8 +189,60 @@ public final class FlightAgentTest {
         check(agent.snapshot().getJSONObject("api_error").getString("param").endsWith("label")&&!agent.snapshot().getString("decisions_status").contains("saldo"),"Failed probe persists useful diagnostics");
         FlightAgent recovered=new FlightAgent(new Fake(),store);recovered.test();check(!recovered.snapshot().has("api_error"),"Successful probe clears prior diagnostics");
     }
+    static JSONObject finalItem(String turn,String subagent,String result)throws Exception {
+        return obj("id","item_other","type","message","turn_id",turn,"subagent_id",subagent==null?JSONObject.NULL:subagent,"role","assistant","phase","final_answer","content",new JSONArray().put(obj("type","output_text","text",result)));
+    }
+    static void progressAndFailures()throws Exception {
+        apiPath("/agents/sessions/ses_fixture/turns/turn_1/items?order=desc&limit=20");
+        rejects(()->apiPath("/agents/sessions/ses_fixture/items?order=desc&turn_id=turn_1"),"Reject unsupported turn_id query before sending HTTP");
+        apiPath("/agents/sessions/ses_fixture/events?stream=true");
+        Fake f=new Fake();Memory store=new Memory();FlightAgent a=started(f,store);f.noItems=true;f.environmentStatus="pending";
+        JSONObject preparing=a.poll();check(preparing.getString("phase").equals("starting")&&preparing.getString("progress").contains("preparando"),"Pending hosted environment is visible as preparation");
+        f.environmentStatus="connected";JSONObject connected=a.poll();
+        check(connected.getString("phase").equals("browsing")&&connected.getString("progress").contains("conectado")&&connected.getString("screenshot").isEmpty(),"Connected browser may legitimately have no screenshot yet");
+        f.turnId="";check(a.poll().getString("progress").contains("Aguardando"),"No root turn reports waiting rather than fabricated activity");f.turnId="turn_1";
+        f.itemFailure=OpenAiErrors.fromResponse(400,"/agents/sessions/ses_fixture/turns/turn_1/items",obj("error",obj("param","fixture_field","message","Rejected query")).toString(),"req_poll","");
+        rejects(a::poll,"Simulated permanent polling error");JSONObject rejected=a.snapshot();
+        check(rejected.getBoolean("running")&&rejected.getBoolean("poll_blocked")&&rejected.getString("phase").equals("recovering"),"Stop automatic retries without falsely cancelling remote task");
+        check(rejected.getString("poll_warning").contains("400")&&rejected.getJSONObject("api_error").getString("request_id").equals("req_poll"),"Persist polling error and request ID");
+        check(new FlightAgent(f,store).snapshot().getBoolean("poll_blocked"),"Blocked tracking survives process restart");
+        rejects(()->a.begin(itinerary()),"Unknown task outcome prevents duplicate search");
+        JSONObject recovered=a.poll();check(!recovered.optBoolean("poll_blocked")&&!recovered.has("poll_warning")&&f.creates==1&&f.submissions==1,"Manual consultation recovers same session without replaying task");
+        f.itemFailure=new SocketTimeoutException();rejects(a::poll,"Simulated transient item timeout");check(!a.snapshot().getBoolean("poll_blocked")&&a.snapshot().has("poll_warning"),"Transient failures remain recoverable and visible");
+        check(a.snapshot().getLong("poll_retry_at")>System.currentTimeMillis(),"Transient failure backs off automatic consultation");a.poll();check(!a.snapshot().has("poll_retry_at"),"Successful consultation clears retry delay");
+        a.streamFailure("Sem acompanhamento ao vivo.",null);check(a.snapshot().has("stream_warning")&&a.snapshot().getBoolean("running"),"Stream transport failure does not imply task failure");
+        a.streamConnected();check(!a.snapshot().has("stream_warning"),"New stream clears transport warning");
+        a.onEvent(obj("type","agent.session.turn.failed","turn",obj("id","turn_child","subagent_id","child","status","failed")));
+        check(a.snapshot().getBoolean("running"),"Subagent failure does not end root search");
+        a.onEvent(obj("type","error"));check(a.snapshot().getString("phase").equals("recovering")&&a.snapshot().has("poll_warning"),"Provider error event triggers visible session recovery");a.poll();
+        f.environmentStatus="failed";Memory expiredCheck=new Memory();JSONObject cached=a.snapshot();cached.put("environment_checked_at",0);expiredCheck.put("state",cached.toString());
+        JSONObject failed=new FlightAgent(f,expiredCheck).poll();check(!failed.getBoolean("running")&&failed.getString("phase").equals("error")&&failed.getString("error").contains("navegador"),"Environment failure cannot keep spinning");
+        for(String type:new String[]{"agent.session.failed","agent.session.environment.failed","agent.session.turn.failed","agent.session.turn.cancelled"}){
+            Fake remote=new Fake();FlightAgent agent=started(remote,new Memory());agent.onEvent(obj("type",type,"turn",obj("id","turn_1","subagent_id",JSONObject.NULL,"status","failed")));
+            check(!agent.snapshot().getBoolean("running")&&!agent.snapshot().getString("error").isEmpty(),"Surface terminal lifecycle event "+type);
+        }
+        Fake expired=new Fake();FlightAgent exp=started(expired,new Memory());expired.environmentStatus="expired";check(exp.poll().getString("error").contains("expirou"),"Expired environment is terminal");
+    }
+    static void turnHistoryAndNonblockingSnapshot()throws Exception {
+        Fake f=new Fake();FlightAgent a=started(f,new Memory());f.turnStatus="completed";f.finalText=output().toString();
+        String unrelated=obj("status","blocked","summary","Outra tarefa","route","Rota antiga","offers",new JSONArray()).toString();
+        f.foreignItems.put(finalItem("turn_old",null,unrelated)).put(finalItem("turn_1","child",unrelated));
+        check(a.poll().getJSONArray("offers").length()==1,"Only current root final answer can become fares");
+        Fake pages=new Fake();FlightAgent paged=started(pages,new Memory());pages.turnStatus="completed";
+        pages.itemPages=new JSONArray[]{new JSONArray().put(finalItem("turn_old",null,unrelated)),new JSONArray().put(finalItem("turn_1",null,output().toString()))};
+        check(paged.poll().getJSONArray("offers").length()==1,"Read paginated turn items before concluding no offers");
+        Fake slow=new Fake();FlightAgent visible=started(slow,new Memory());slow.pollEntered=new java.util.concurrent.CountDownLatch(1);slow.pollRelease=new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService worker=java.util.concurrent.Executors.newFixedThreadPool(2);
+        java.util.concurrent.Future<JSONObject> poll=worker.submit(visible::poll);
+        try{
+            check(slow.pollEntered.await(1,java.util.concurrent.TimeUnit.SECONDS),"Polling fixture entered blocked network call");
+            JSONObject snapshot=worker.submit(visible::snapshot).get(1,java.util.concurrent.TimeUnit.SECONDS);
+            check(snapshot.getBoolean("running")&&visible.streamSession().equals("ses_fixture"),"UI and event subscription do not block behind network polling");
+        }finally{slow.pollRelease.countDown();worker.shutdown();}
+        poll.get(3,java.util.concurrent.TimeUnit.SECONDS);
+    }
     public static void main(String[]args)throws Exception {
-        contracts();completionAndRefinement();incompleteAndUnavailable();recovery();permissionsAndDeadline();errorDiagnostics();
+        contracts();completionAndRefinement();incompleteAndUnavailable();recovery();permissionsAndDeadline();errorDiagnostics();progressAndFailures();turnHistoryAndNonblockingSnapshot();
         System.out.println("PASS: "+checks+" contract and lifecycle checks (offline fixtures).");
     }
 }

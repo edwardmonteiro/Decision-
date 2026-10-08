@@ -9,7 +9,10 @@ import static com.edward.flights.FlightContracts.*;
 
 /** Direct personal-device client; browser execution belongs to OpenAI. */
 public final class FlightAgent {
-    public interface Transport { JSONObject call(String path,String method,JSONObject body,String idempotencyKey) throws Exception; }
+    public interface Transport {
+        JSONObject call(String path,String method,JSONObject body,String idempotencyKey) throws Exception;
+        default void watch(String sessionId) throws Exception {}
+    }
     public interface Store { String get(String key); void put(String key,String value); }
     public static class ApiError extends Exception {
         public final int status;
@@ -20,42 +23,68 @@ public final class FlightAgent {
     private final Transport transport;
     private final Store store;
     private JSONObject state;
-    private String screenshot="";
+    private volatile String screenshot="",publishedState;
     private final Set<String> observedItems=new HashSet<>();
-    private boolean streaming;
+    private volatile boolean streaming;
     public FlightAgent(Transport transport,Store store) throws Exception {
         this.transport=transport;this.store=store;
         try{state=new JSONObject(store.get("state"));}catch(Exception e){state=new JSONObject();}
         if(!state.has("running"))state.put("running",false);
         if(!state.has("phase"))state.put("phase","idle");
         if(!state.has("offers"))state.put("offers",new JSONArray());
+        publishedState=state.toString();
     }
     private void recordFailure(ApiError e){if(e.diagnostic!=null)store.put("api_error",e.diagnostic.toString());}
+    private static boolean rejected(Exception e){if(!(e instanceof ApiError))return false;int s=((ApiError)e).status;return s>=400&&s<500&&s!=408&&s!=409&&s!=429;}
     private JSONObject api(String path,String method,JSONObject body) throws Exception {
         try{return transport.call(path,method,body,null);}catch(ApiError e){recordFailure(e);throw e;}
     }
     private String session(){return state.optString("session_id","");}
-    private void save(){store.put("state",state.toString());}
-    public synchronized JSONObject snapshot() throws Exception {
-        JSONObject s=new JSONObject(state.toString());s.put("screenshot",screenshot);s.put("streaming",streaming);
+    private void save(){publishedState=state.toString();store.put("state",publishedState);}
+    // Read a published copy without waiting behind network calls on the control thread.
+    public JSONObject snapshot() throws Exception {
+        JSONObject s=new JSONObject(publishedState);s.put("screenshot",screenshot);s.put("streaming",streaming);
         s.put("vault_id",store.get("vault_id"));s.put("vault_status",store.get("vault_status"));
         s.put("decisions_status",store.get("decisions_status"));s.put("decision_request_id",store.get("decision_request_id"));
         try{s.put("api_error",new JSONObject(store.get("api_error")));}catch(Exception ignored){}
         s.put("configured",true);s.put("model","gpt-6-astra");s.put("decision_model","gpt-6-luna");return s;
     }
-    public synchronized String streamSession(){return state.optBoolean("running")?session():"";}
-    public synchronized void streamStatus(boolean value){streaming=value;}
+    public String streamSession(){try{JSONObject s=new JSONObject(publishedState);return s.optBoolean("running")?s.optString("session_id"):"";}catch(Exception e){return "";}}
+    public void streamStatus(boolean value){streaming=value;}
+    public synchronized void streamFailure(String message,ApiError error) throws Exception {
+        if(!state.optBoolean("running"))return;
+        if(error!=null)recordFailure(error);
+        state.put("stream_warning",message);save();
+    }
+    public synchronized void streamConnected() throws Exception {state.remove("stream_warning");save();}
+    private void terminal(String phase,String message) throws Exception {
+        state.put("running",false);state.put("phase",phase);state.put("error",message);
+        state.put("completed_at",System.currentTimeMillis());state.put("approvals",new JSONArray());save();
+    }
+    private void progress(String phase,String message) throws Exception {
+        if(state.optString("phase").equals("permission")||state.optBoolean("poll_blocked"))return;
+        state.put("phase",phase);state.put("progress",message);
+    }
     public synchronized void onEvent(JSONObject event) {
         try{
+            if(!state.optBoolean("running"))return;
             String type=event.optString("type");JSONObject item=event.optJSONObject("item");
             if(item!=null)observeItem(item);
             JSONObject turn=event.optJSONObject("turn");
+            if(item==null&&turn==null&&!type.equals("agent.session.requires_action")&&!type.equals("agent.session.environment.failed")&&!type.equals("agent.session.failed")&&!type.equals("error"))return;
             if(turn!=null&&turn.isNull("subagent_id")&&!turn.optString("id").equals(state.optString("baseline_turn"))){
                 state.put("last_turn",turn.optString("id"));
-                if(type.equals("agent.session.turn.completed"))state.put("phase","checking");
-                if(type.equals("agent.session.turn.failed")||type.equals("agent.session.turn.cancelled"))state.put("phase","checking");
+                state.put("turn_status",turn.optString("status"));
+                if(type.equals("agent.session.turn.completed"))progress("checking","O agente terminou. Conferindo as tarifas observadas.");
+                else if(type.equals("agent.session.turn.failed")){terminal("error","O agente OpenAI não concluiu a busca. Consulte a sessão para verificar a falha.");return;}
+                else if(type.equals("agent.session.turn.cancelled")){terminal("cancelled","Busca interrompida na OpenAI.");return;}
+                else progress("browsing","O agente OpenAI está trabalhando na sua viagem.");
             }
             if(type.equals("agent.session.requires_action"))state.put("phase","permission");
+            if(type.equals("agent.session.environment.failed")){state.put("environment_status","failed");terminal("error","O navegador hospedado na OpenAI falhou. Consulte a sessão para verificar a falha.");return;}
+            if(type.equals("agent.session.failed")){terminal("error","A sessão OpenAI falhou. Consulte a sessão para verificar a falha.");return;}
+            if(type.equals("error")){state.put("poll_warning","A OpenAI informou uma falha. Consultando a mesma sessão para verificar o estado.");progress("recovering","Verificando a busca após uma falha na conexão.");}
+            save();
         }catch(Exception ignored){}
     }
     private String ensureVault() throws Exception {
@@ -92,6 +121,7 @@ public final class FlightAgent {
             "vault_ids",new JSONArray().put(resource(vaultId)),"metadata",obj("app","decision-flights","client_search_id",searchId),"stream",false);
     }
     public synchronized JSONObject begin(JSONObject request) throws Exception {
+        long requestedAt=System.currentTimeMillis();
         if(state.optBoolean("running"))throw new ApiError(409,"A busca atual ainda está em andamento.");
         boolean followup=request.optBoolean("followup",false);
         String input;
@@ -122,19 +152,26 @@ public final class FlightAgent {
         JSONArray previous=api(path+"/turns?order=desc&limit=10","GET",null).optJSONArray("data");
         String baseline="";if(previous!=null)for(int i=0;i<previous.length();i++){JSONObject t=previous.getJSONObject(i);if(t.isNull("subagent_id")){baseline=t.getString("id");break;}}
         state.put("baseline_turn",baseline);state.put("last_turn","");state.put("phase","starting");state.put("running",true);
-        state.put("started_at",System.currentTimeMillis());state.put("offers",new JSONArray());state.put("activities",new JSONArray());
+        state.put("started_at",requestedAt);state.put("offers",new JSONArray());state.put("activities",new JSONArray());
         state.put("summary","");state.put("error","");state.put("result_status","");state.remove("ranking");state.remove("checked_at");
+        state.put("activity","");state.put("progress","Conectando o acompanhamento da busca.");state.put("turn_status","");
+        for(String field:new String[]{"poll_warning","poll_blocked","poll_retry_at","poll_failures","stream_warning","last_poll_at","last_activity_at","completed_at","environment_checked_at"})state.remove(field);
         state.put("submission_key",UUID.randomUUID().toString());state.put("pending_input",input);screenshot="";observedItems.clear();save();
-        try{submitPending();}catch(Exception e){state.put("phase","recovering");state.put("error","Envio sem confirmação. A sessão será consultada antes de qualquer nova tentativa.");save();throw e;}
+        try{submitPending();}catch(Exception e){
+            if(rejected(e)){terminal("error",e.getMessage());throw e;}
+            state.put("phase","recovering");state.put("error","Envio sem confirmação. A sessão será consultada antes de qualquer nova tentativa.");state.put("poll_warning",state.getString("error"));state.put("progress","Verificando se a OpenAI recebeu o pedido.");save();throw e;
+        }
         return snapshot();
     }
     private void submitPending() throws Exception {
+        // Subscribe before sending input. Lost early events are also recovered from saved items.
+        transport.watch(session());
         JSONObject part=obj("type","input_text","text",state.getString("pending_input"));
         JSONObject message=obj("role","user","content",new JSONArray().put(part));
         JSONObject event=obj("type","agent.session.input.message","input",new JSONArray().put(message));
         try{transport.call("/agents/sessions/"+resource(session())+"/events","POST",obj("events",new JSONArray().put(event)),state.getString("submission_key"));}
         catch(ApiError e){recordFailure(e);throw e;}
-        state.put("phase","browsing");state.remove("pending_input");save();
+        state.put("phase","starting");state.put("progress","Pedido enviado. Aguardando a OpenAI iniciar o navegador.");state.remove("pending_input");save();
     }
     private void recoverCreation() throws Exception {
         String expected=store.get("pending_create");JSONArray list=api("/agents/sessions?order=desc&limit=100","GET",null).optJSONArray("data");
@@ -155,8 +192,9 @@ public final class FlightAgent {
             String data=output.optString("image_url");if(data.startsWith("data:image/jpeg;base64,")&&data.length()<6000000)screenshot=data;
         }
         if(!id.isEmpty()&&observedItems.add(id)){
+            state.put("last_activity_at",System.currentTimeMillis());
             JSONArray log=state.optJSONArray("activities");if(log==null)log=new JSONArray();
-            log.put(obj("title",title.equals("null")?"Navegação no Google Flights":title,"status",item.optString("status")));
+            log.put(obj("title",title.isEmpty()||title.equals("null")?"Navegação no Google Flights":title,"status",item.optString("status")));
             if(log.length()>20)log.remove(0);state.put("activities",log);
         }
     }
@@ -184,35 +222,59 @@ public final class FlightAgent {
         state.put("approvals",new JSONArray());state.put("phase","browsing");save();return snapshot();
     }
     public synchronized JSONObject poll() throws Exception {
+        try{pollSession();state.remove("poll_warning");state.remove("poll_retry_at");state.remove("poll_failures");save();return snapshot();}catch(Exception e){
+            if(!session().isEmpty()&&state.optBoolean("running")){
+                if(e instanceof ApiError)recordFailure((ApiError)e);
+                boolean blocked=rejected(e);
+                state.put("poll_blocked",blocked);state.put("phase","recovering");
+                int failures=Math.min(5,state.optInt("poll_failures")+1);state.put("poll_failures",failures);
+                state.put("poll_retry_at",System.currentTimeMillis()+Math.min(30000,5000L*failures));
+                state.put("poll_warning",e instanceof ApiError?e.getMessage():"Sem atualização confirmada. Confira a conexão e consulte o andamento.");
+                state.put("progress","Não foi possível confirmar o andamento da busca.");save();
+            }
+            throw e;
+        }
+    }
+    private JSONObject pollSession() throws Exception {
         if(session().isEmpty()){if(!store.get("pending_create").isEmpty())recoverCreation();return snapshot();}
         if(enforceDeadline())return snapshot();
         String path="/agents/sessions/"+resource(session());JSONObject remote=api(path,"GET",null);
+        state.put("last_poll_at",System.currentTimeMillis());state.remove("poll_warning");state.remove("poll_blocked");
         JSONObject env=remote.optJSONObject("environment");
         if(env!=null){String envId=resource(env.getString("id"));state.put("environment_id",envId);
-            if(!state.optString("environment_status").equals("connected"))state.put("environment_status",api("/agents/environments/"+envId,"GET",null).optString("status","preparing"));}
+            if(!state.optString("environment_status").equals("connected")||System.currentTimeMillis()-state.optLong("environment_checked_at")>=15000){
+                state.put("environment_status",api("/agents/environments/"+envId,"GET",null).optString("status","pending"));state.put("environment_checked_at",System.currentTimeMillis());}}
         String status=remote.optString("status");state.put("remote_status",status);if(remote.has("usage"))state.put("usage",remote.opt("usage"));
-        if(status.equals("failed")){state.put("running",false);state.put("phase","error");state.put("error","A sessão OpenAI falhou. Inicie uma nova busca.");save();return snapshot();}
+        if(status.equals("failed")){terminal("error","A sessão OpenAI falhou. Consulte a sessão para verificar a falha.");return snapshot();}
+        if(state.optString("environment_status").equals("failed")||state.optString("environment_status").equals("expired")){
+            terminal("error",state.optString("environment_status").equals("expired")?"O navegador OpenAI expirou. Inicie uma nova busca.":"O navegador hospedado na OpenAI falhou. Consulte a sessão para verificar a falha.");return snapshot();
+        }
         requiredActions(remote.optJSONArray("required_actions"));
         JSONArray turns=api(path+"/turns?order=desc&limit=20","GET",null).optJSONArray("data");JSONObject root=null;
         if(turns!=null)for(int i=0;i<turns.length();i++){JSONObject t=turns.getJSONObject(i);if(t.isNull("subagent_id")&&!t.getString("id").equals(state.optString("baseline_turn"))){root=t;break;}}
-        if(root==null){save();return snapshot();}
-        String turnId=resource(root.getString("id")),turnStatus=root.optString("status");state.put("last_turn",turnId);
+        if(root==null){
+            if(state.optBoolean("running"))progress("starting",state.has("pending_input")?"Envio sem confirmação. Verificando se a OpenAI recebeu o pedido.":"Pedido recebido. Aguardando a OpenAI iniciar a busca.");
+            save();return snapshot();
+        }
+        String turnId=resource(root.getString("id")),turnStatus=root.optString("status");state.put("last_turn",turnId);state.put("turn_status",turnStatus);
         if(state.has("pending_input")){state.remove("pending_input");save();}
         boolean done=turnStatus.equals("completed");
-        if(turnStatus.equals("failed")||turnStatus.equals("cancelled")){state.put("running",false);state.put("phase",turnStatus.equals("cancelled")?"cancelled":"error");state.put("error",turnStatus.equals("cancelled")?"Busca interrompida.":"O agente não concluiu a busca.");save();return snapshot();}
-        if(done&&!state.optBoolean("running"))return snapshot();
+        if(turnStatus.equals("failed")||turnStatus.equals("cancelled")){terminal(turnStatus.equals("cancelled")?"cancelled":"error",turnStatus.equals("cancelled")?"Busca interrompida.":"O agente não concluiu a busca.");return snapshot();}
+        if(done&&!state.optBoolean("running")){save();return snapshot();}
+        if(state.optBoolean("running"))progress(done?"checking":state.optString("environment_status").equals("connected")?"browsing":"starting",done?"O agente terminou. Conferindo as tarifas observadas.":state.optString("environment_status").equals("connected")?"Navegador conectado. O agente está pesquisando sua viagem.":"A OpenAI está preparando o navegador hospedado.");
         String after="",finalText=null;
         for(int page=0;page<(done?10:1);page++){
-            JSONObject items=api(path+"/items?order="+(done?"asc":"desc")+"&limit="+(done?"100":"20")+"&turn_id="+turnId+after,"GET",null);
+            JSONObject items=api(path+"/turns/"+turnId+"/items?order="+(done?"asc":"desc")+"&limit="+(done?"100":"20")+after,"GET",null);
             JSONArray data=items.optJSONArray("data");if(data==null)break;
             // Active pages are newest first; process oldest first to preserve latest screenshot.
             for(int j=0;j<data.length();j++){
                 int i=done?j:data.length()-j-1;JSONObject item=data.getJSONObject(i);observeItem(item);
-                if(done&&item.optString("type").equals("message")&&item.optString("role").equals("assistant")&&item.optString("phase").equals("final_answer")){
+                if(done&&turnId.equals(item.optString("turn_id"))&&item.isNull("subagent_id")&&item.optString("type").equals("message")&&item.optString("role").equals("assistant")&&item.optString("phase").equals("final_answer")){
                     JSONArray content=item.optJSONArray("content");if(content!=null)for(int k=0;k<content.length();k++){JSONObject part=content.getJSONObject(k);if(part.optString("type").equals("output_text"))finalText=part.getString("text");}
                 }
             }
             if(!items.optBoolean("has_more"))break;after="&after="+resource(items.getString("last_id"));
+            if(done&&page==9)throw new ApiError(422,"O histórico da busca excedeu o limite de leitura. Consulte a sessão na OpenAI.");
         }
         if(done){
             state.put("running",false);state.put("completed_at",System.currentTimeMillis());state.put("checked_at",System.currentTimeMillis());state.put("approvals",new JSONArray());

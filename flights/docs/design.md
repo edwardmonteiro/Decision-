@@ -87,3 +87,20 @@ transbordamento horizontal. Não houve erros JavaScript. Os testes de conexão
 usam ponte nativa e WebRTC simulados somente no teste; nenhum mock é enviado
 no APK. O Browser plugin não está disponível nesta sessão. O áudio e as
 permissões reais do Android ainda dependem de um aparelho com chave autorizada.
+
+
+## Acompanhamento da busca · v0.1.2
+
+A tela mostra preparação e navegação conforme o estado confirmado da OpenAI.
+Uma consulta rejeitada deixa o indicador estático e mostra um aviso persistente.
+**Consultar andamento** consulta a sessão existente; não envia outra busca.
+A hora da última consulta fica abaixo do navegador. Ausência de imagem com
+navegador conectado é descrita sem sugerir uma tela já recebida. Aos 30 segundos
+sem nova atividade, a interface oferece orientação para conferir o andamento.
+
+68 verificações da interface passaram, incluindo espera de 64 segundos, erro
+de consulta, interrupção das tentativas automáticas e recuperação pela mesma
+sessão. Não houve transbordamento em 320, 360, 393, 540 ou 1280 px. A captura
+`connection-recovery-fixture.png` foi inspecionada em Chromium local. É evidência
+do código renderizado com fixture; não é uma sessão OpenAI real nem uma captura
+de aparelho físico. Nenhuma tarifa ou atividade de demonstração é enviada no APK.

@@ -119,7 +119,7 @@ public final class VoiceAgent {
     }
     public static JSONObject summary(JSONObject state)throws Exception{
         JSONObject out=obj("phase",state.optString("phase","idle"),"running",state.optBoolean("running"),"route",state.optString("route"),
-            "activity",state.optString("activity"),"summary",state.optString("summary"),"error",state.optString("error"),"result_status",state.optString("result_status"));
+            "activity",state.optString("activity"),"progress",state.optString("progress"),"warning",state.optString("poll_warning",state.optString("stream_warning")),"summary",state.optString("summary"),"error",state.optString("error"),"result_status",state.optString("result_status"));
         if(state.optJSONObject("trip")!=null)out.put("trip",state.getJSONObject("trip"));
         if(state.has("checked_at"))out.put("checked_at",state.get("checked_at"));
         JSONArray offers=state.optJSONArray("offers"),spoken=new JSONArray();

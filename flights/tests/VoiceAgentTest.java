@@ -39,6 +39,9 @@ public final class VoiceAgentTest {
         check(flightsTransport.creates==1&&flightsTransport.submissions==1,"Repeated Live call does not launch duplicate flight task");
         JSONObject status=voice.action(flights,action("live_1","call_2","get_search_status",new JSONObject()));
         check(status.getJSONObject("result").getBoolean("running")&&!status.getJSONObject("result").has("vault_id")&&status.getJSONObject("result").getJSONArray("offers").length()==0,"Spoken status exposes progress without private IDs or unverified fares");
+        flights.streamFailure("Sem acompanhamento ao vivo.",null);
+        JSONObject interrupted=voice.action(flights,action("live_1","call_status_warning","get_search_status",new JSONObject())).getJSONObject("result");
+        check(interrupted.getString("warning").contains("Sem acompanhamento")&&!interrupted.getString("progress").isEmpty(),"Voice receives the actual connection warning and waiting state");
         rejects(()->voice.action(flights,action("other_live","call_bad","cancel_search",new JSONObject())),"Stale session cannot act");
         rejects(()->voice.action(flights,action("live_1","call_bad","buy_ticket",new JSONObject())),"Unknown function cannot execute");
         rejects(()->voice.action(flights,action("live_1","call_bad","search_flights",FlightAgentTest.itinerary().put("url","https://evil.test"))),"Unexpected arguments rejected");

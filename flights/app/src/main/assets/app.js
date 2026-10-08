@@ -39,10 +39,10 @@ function recordHistory(s){
 }
 function settings(){
   $('connectionStatus').textContent=state.configured?(state.decisions_status?.includes('real')?'Conexão testada':'Chave salva'):'Não conectada';
-  $('decisionsStatus').textContent=state.decisions_status||'Não testado';$('vaultStatus').textContent=state.vault_status||'Não conectado';$('environmentStatus').textContent=state.environment_status==='connected'?'Navegador conectado':state.environment_status||'Criado na busca';
+  $('decisionsStatus').textContent=state.decisions_status||'Não testado';$('vaultStatus').textContent=state.vault_status||'Não conectado';$('environmentStatus').textContent=({pending:'Preparando navegador',connected:'Navegador conectado',disconnected:'Navegador desconectado',expired:'Navegador expirado',failed:'Falha no navegador'})[state.environment_status]||'Criado na busca';
   $('voiceServiceStatus').textContent=state.voice?.session_id?'Conversa em andamento':state.voice?.status||'Pronto para conversar';
   $('connectButton').textContent=state.configured?'Trocar chave OpenAI':'Conectar OpenAI';$('testButton').hidden=!state.configured;$('disconnectButton').hidden=!state.configured;$('closeSessionButton').hidden=!state.session_id;
-  $('resourceDetails').innerHTML=[['Versão do app','0.1.1'],['Última falha',state.api_error?`${state.api_error.service} · HTTP ${state.api_error.status}`:''],['Campo rejeitado',state.api_error?.param],['Código da falha',state.api_error?.code],['Detalhe da falha',state.api_error?.detail],['Request da falha',state.api_error?.request_id],['Session',state.session_id],['Environment',state.environment_id],['Vault',state.vault_id],['Modelo do agente',state.configured?state.model:''],['Modelo Decisions',state.configured?state.decision_model:''],['Request Decisions',state.decision_request_id],['Tokens da sessão',state.usage?.total_tokens],['Decisions · comparação',state.ranking?.latency_ms!==undefined?`${state.ranking.latency_ms} ms`:'']].filter(p=>p[1]!==undefined&&p[1]!=='').map(p=>`<dt>${esc(p[0])}</dt><dd>${esc(p[1])}</dd>`).join('');
+  $('resourceDetails').innerHTML=[['Versão do app','0.1.2'],['Última falha',state.api_error?`${state.api_error.service} · HTTP ${state.api_error.status}`:''],['Campo rejeitado',state.api_error?.param],['Código da falha',state.api_error?.code],['Detalhe da falha',state.api_error?.detail],['Request da falha',state.api_error?.request_id],['Acompanhamento ao vivo',state.stream_warning],['Consulta da sessão',state.poll_warning],['Estado da sessão',state.remote_status],['Estado da busca',state.turn_status],['Session',state.session_id],['Environment',state.environment_id],['Vault',state.vault_id],['Modelo do agente',state.configured?state.model:''],['Modelo Decisions',state.configured?state.decision_model:''],['Request Decisions',state.decision_request_id],['Tokens da sessão',state.usage?.total_tokens],['Decisions · comparação',state.ranking?.latency_ms!==undefined?`${state.ranking.latency_ms} ms`:'']].filter(p=>p[1]!==undefined&&p[1]!=='').map(p=>`<dt>${esc(p[0])}</dt><dd>${esc(p[1])}</dd>`).join('');
 }
 function price(o){try{return new Intl.NumberFormat('pt-BR',{style:'currency',currency:o.currency,maximumFractionDigits:o.price%1===0?0:2}).format(o.price);}catch{return `${o.currency} ${o.price}`;}}
 function scope(o){return {trip_per_person:'viagem completa · por pessoa',trip_all_passengers:'viagem completa · total',one_way_per_person:'somente ida · por pessoa'}[o.price_scope]||'';}
@@ -70,7 +70,10 @@ function applyState(s){
   $('retryButton').hidden=!state.pending_input;
   const messages=!running&&(state.phase==='error'||state.phase==='cancelled'||state.phase==='complete'&&!(state.offers||[]).length);$('messageArea').hidden=!messages;
   const phase={starting:'Preparando navegador',browsing:'Pesquisando passagens',permission:'Aguardando sua permissão',checking:'Validando as ofertas',recovering:'Recuperando a sessão'};
-  $('progressLabel').textContent=phase[state.phase]||'Pesquisando passagens';$('timer').textContent=`${elapsed()} s`;$('activityLabel').textContent=state.activity||'A sessão está sendo preparada na OpenAI.';
+  $('progressLabel').textContent=state.poll_blocked?'Acompanhamento interrompido':phase[state.phase]||'Pesquisando passagens';$('timer').textContent=`${elapsed()} s`;
+  $('activityLabel').textContent=state.phase==='recovering'||state.phase==='checking'?state.progress||'Verificando o estado da busca.':state.activity||state.progress||(state.phase==='browsing'?'O agente OpenAI está pesquisando sua viagem.':'A sessão está sendo preparada na OpenAI.');
+  $('browserEmptyText').textContent=state.environment_status==='connected'?'Navegador conectado. Aguardando a primeira imagem da busca.':state.phase==='recovering'?'Verificando a conexão com a busca.':state.progress||'Aguardando a primeira tela do navegador hospedado.';
+  progressFeedback();
   if(state.screenshot){if($('browserImage').src!==state.screenshot)$('browserImage').src=state.screenshot;$('browserImage').hidden=false;$('browserEmpty').hidden=true;}else{$('browserImage').hidden=true;$('browserEmpty').hidden=false;}
   $('resultSummary').textContent=state.summary||'Ofertas observadas no Google Flights.';
   $('resultsTime').textContent=state.checked_at?`Consultado ${new Date(state.checked_at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})} · ${elapsed()} s de busca`:'';
@@ -83,12 +86,22 @@ function applyState(s){
   else{approvalId='';if($('approvalDialog').open)$('approvalDialog').close();}
   recordHistory(state);schedulePoll();if(window.DecisionVoiceState)window.DecisionVoiceState(state);
 }
-function schedulePoll(){clearTimeout(pollTimer);if(!paused&&native()&&state.running&&!polling&&!submitting)pollTimer=setTimeout(poll,state.phase==='checking'?250:state.streaming?4000:1600);}
-async function poll(){if(polling||paused||!native()||!state.session_id)return;polling=true;try{await api('poll');}catch(e){showToast(e.message);}finally{polling=false;schedulePoll();}}
+function schedulePoll(){clearTimeout(pollTimer);if(!paused&&native()&&state.running&&!state.poll_blocked&&!polling&&!submitting)pollTimer=setTimeout(poll,Math.max(state.phase==='checking'?250:state.streaming?4000:1600,(state.poll_retry_at||0)-Date.now()));}
+function progressFeedback(){
+  const silent=(state.running||submitting)&&Date.now()-(state.last_activity_at||state.started_at||Date.now())>=30000;
+  const warning=state.poll_warning||(silent?'Ainda sem nova atividade confirmada. Consulte o andamento para verificar a busca.':'')||state.stream_warning||'';
+  $('progressWarning').textContent=warning;$('progressWarning').hidden=!warning;
+  $('lastUpdateLabel').textContent=state.last_poll_at?`Sessão consultada às ${new Date(state.last_poll_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`:'Aguardando confirmação do andamento.';
+  $('progressDot').classList.toggle('paused',Boolean(state.poll_blocked));
+  $('checkProgressButton').disabled=polling||submitting||!state.session_id;
+  $('checkProgressButton').textContent=polling?'Consultando andamento…':'Consultar andamento';
+  $('refreshButton').disabled=polling||submitting||!state.session_id;
+}
+async function poll(){if(polling||paused||!native()||!state.session_id)return;polling=true;progressFeedback();try{await api('poll');}catch(e){showToast(e.message);}finally{polling=false;progressFeedback();schedulePoll();}}
 async function search(e){
   e.preventDefault();if(submitting)return;if(state.running){setView('work');return;}if(!native()||!state.configured){$('settingsDialog').showModal();showToast(native()?'Conecte sua chave OpenAI para pesquisar.':'A conexão está disponível no APK.');return;}
   const t=trip();if(!t.from||!t.to)return;if(t.returning&&t.returning<t.departure){showToast('A volta deve ser no dia da ida ou depois.');return;}
-  submitting=true;state={...state,phase:'starting',running:false,route:`${t.from} → ${t.to}`,started_at:Date.now(),screenshot:'',offers:[],activities:[],activity:''};setView('work');applyState(state);
+  submitting=true;state={...state,phase:'starting',running:false,route:`${t.from} → ${t.to}`,started_at:Date.now(),screenshot:'',offers:[],activities:[],activity:'',progress:'A sessão está sendo preparada na OpenAI.',poll_warning:'',stream_warning:'',poll_blocked:false,poll_retry_at:0,last_poll_at:0,last_activity_at:0,environment_status:'',session_id:'',environment_id:''};setView('work');applyState(state);
   try{await api('search',t);}catch(e){showToast(e.message);if(!state.running){state.phase='error';state.error=e.message;}}
   finally{submitting=false;applyState(state);schedulePoll();}
 }
@@ -111,7 +124,7 @@ $('connectButton').addEventListener('click',()=>{if(native()){window.Android.ope
 $('testButton').addEventListener('click',async()=>{const b=$('testButton');b.disabled=true;try{await api('test');showToast('Decisions e Vault testados na sua conta.');}catch(e){showToast(e.message);}finally{b.disabled=false;}});
 $('cancelButton').addEventListener('click',async()=>{try{await api('cancel');}catch(e){showToast(e.message);}});
 $('retryButton').addEventListener('click',async()=>{const b=$('retryButton');b.disabled=true;try{await api('retry');}catch(e){showToast(e.message);}finally{b.disabled=false;}});
-$('refreshButton').addEventListener('click',()=>poll());
+$('refreshButton').addEventListener('click',()=>poll());$('checkProgressButton').addEventListener('click',()=>poll());
 $('closeSessionButton').addEventListener('click',async()=>{try{await api('close');closeDialogs();setView('home');showToast('Sessão encerrada.');}catch(e){showToast(e.message);}});
 $('disconnectButton').addEventListener('click',async()=>{if(window.DecisionVoiceEnd)window.DecisionVoiceEnd();try{await api('disconnect');state={configured:false,running:false,phase:'idle',offers:[]};applyState(state);closeDialogs();setView('home');showToast('Conexão removida deste celular.');}catch(e){showToast(e.message);}});
 $('platformButton').addEventListener('click',()=>openLink('https://platform.openai.com/agents'));
@@ -119,5 +132,5 @@ async function approval(decision){if(!approvalId)return;const b=$('approveButton
 $('approveButton').addEventListener('click',()=>approval('approve'));$('denyButton').addEventListener('click',()=>approval('deny'));
 $('approvalDialog').addEventListener('cancel',e=>{e.preventDefault();showToast('Permita ou recuse o acesso ao site.');});
 const today=new Date();today.setHours(12,0,0,0);$('departure').min=dateString(today);$('returning').min=dateString(today);const departing=new Date(today);departing.setDate(today.getDate()+33);const returning=new Date(departing);returning.setDate(departing.getDate()+10);$('departure').value=dateString(departing);$('returning').value=dateString(returning);labels();renderHistory();
-setInterval(()=>{if(!paused&&state.running)$('timer').textContent=`${elapsed()} s`;},1000);
+setInterval(()=>{if(!paused&&(state.running||submitting)){$('timer').textContent=`${elapsed()} s`;progressFeedback();}},1000);
 if(native()){state.configured=window.Android.isConfigured();api('state').catch(e=>showToast(e.message));}else settings();
