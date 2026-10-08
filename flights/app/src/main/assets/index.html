@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'"><title>Decision Flights</title><link rel="stylesheet" href="app.css"><script src="app.js" defer></script></head>
+<body>
+<svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+<symbol id="plane" viewBox="0 0 24 24"><path d="m3 10 19-8-6 19-5-7-8-4Zm8 4L22 2m-11 12-1 7 4-3"/></symbol>
+<symbol id="settings" viewBox="0 0 24 24"><path d="m9 3 1-2h4l1 2 3 1 2-1 2 3-1 2 1 3 2 1v4l-2 1-1 3 1 2-3 2-2-1-3 1-1 2h-4l-1-2-3-1-2 1-2-3 1-2-1-3-2-1v-4l2-1 1-3-1-2 3-2 2 1 3-1Z" transform="translate(1 1) scale(.83)"/><circle cx="12" cy="12" r="3.5"/></symbol>
+<symbol id="takeoff" viewBox="0 0 24 24"><path d="M3 21h18M3 13l5 3 12-6a2 2 0 0 0-2-3l-6 3-5-6-3 1 3 7-3-2-2 1 1 2Z"/></symbol>
+<symbol id="landing" viewBox="0 0 24 24"><path d="M3 21h18M3 7l5 5 12 4a2 2 0 0 0 1-4l-7-2-1-7-3-1-1 7-4-4-3 1 1 1Z"/></symbol>
+<symbol id="calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18"/></symbol>
+<symbol id="user" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></symbol>
+<symbol id="swap" viewBox="0 0 24 24"><path d="M8 20V4m-4 4 4-4 4 4m4-4v16m-4-4 4 4 4-4"/></symbol>
+<symbol id="arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+<symbol id="chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+<symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 3"/></symbol>
+<symbol id="note" viewBox="0 0 24 24"><path d="M14 3H5v18h14V8l-5-5Zm0 0v5h5M8 12h8m-8 4h6"/></symbol>
+<symbol id="back" viewBox="0 0 24 24"><path d="M20 12H4m6-6-6 6 6 6"/></symbol>
+<symbol id="close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+<symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L20 5"/></symbol>
+</defs></svg>
+<div class="app">
+<header><button class="brand" id="homeButton" aria-label="Tela inicial"><svg><use href="#plane"/></svg><span>decision</span></button><button class="icon-button" id="settingsButton" aria-label="Configurações"><svg><use href="#settings"/></svg></button></header>
+<main>
+<section id="homeView">
+<h1>Sua próxima<br>viagem.</h1><p class="intro">Você escolhe o destino.<br>A OpenAI faz a busca.</p>
+<form id="searchForm">
+<div class="route-form"><label class="route-row"><svg><use href="#takeoff"/></svg><span><span class="field-label">DE ONDE</span><input id="from" name="from" value="São Paulo" autocomplete="off" maxlength="120" required aria-label="De onde"></span></label>
+<label class="route-row"><svg><use href="#landing"/></svg><span><span class="field-label">PARA ONDE</span><input id="to" name="to" value="Lisboa" autocomplete="off" maxlength="120" required aria-label="Para onde"></span></label>
+<button class="swap" id="swapButton" type="button" aria-label="Inverter origem e destino"><svg><use href="#swap"/></svg></button></div>
+<div class="dates"><label class="date-cell"><svg><use href="#calendar"/></svg><span><span class="field-label">IDA</span><span id="departureLabel">10 nov</span></span><input id="departure" type="date" required aria-label="Data de ida"></label><label class="date-cell"><svg><use href="#calendar"/></svg><span><span class="field-label">VOLTA</span><span id="returningLabel">20 nov</span></span><input id="returning" type="date" aria-label="Data de volta"></label></div>
+<button class="travelers" id="travelersButton" type="button"><svg><use href="#user"/></svg><span><span class="traveler-label">Viajantes</span><span id="travelersLabel">1 adulto · Econômica</span></span><svg class="chevron"><use href="#chevron"/></svg></button>
+<button class="primary" id="searchButton" type="submit"><span>Buscar passagens</span><svg><use href="#arrow"/></svg></button><p class="hosting">Navegador hospedado na OpenAI</p>
+<label class="preferences-label" for="preferences">O que importa para você?</label><div class="preferences-input"><svg><use href="#note"/></svg><input id="preferences" placeholder="Sem escalas, uma mala, até R$ 5 mil…" maxlength="600"></div>
+</form>
+<section class="history"><h2>Últimas buscas</h2><div id="historyList"><div class="empty-history"><svg><use href="#clock"/></svg><p>Suas viagens começam aqui.</p></div></div></section>
+</section>
+<section id="workView" hidden>
+<button class="text-button back" id="backButton"><svg><use href="#back"/></svg> Sua viagem</button><h1 class="work-heading" id="workRoute"></h1>
+<div id="progressArea"><div class="progress-line"><span class="pulse"></span><span id="progressLabel">Preparando navegador</span><span class="timer" id="timer">0 s</span></div><p class="work-caption" id="activityLabel">A sessão está sendo preparada na OpenAI.</p><div class="browser-frame"><div class="browser-chrome"><span class="browser-dots">•••</span><span>Google Flights · OpenAI</span><svg><use href="#plane"/></svg></div><div id="browserEmpty" class="browser-empty"><svg><use href="#plane"/></svg><p>Aguardando a primeira tela<br>do navegador hospedado.</p></div><img id="browserImage" alt="Última tela observada pelo agente no navegador OpenAI" hidden></div><button class="secondary" id="retryButton" hidden>Retomar envio na mesma sessão</button><button class="text-button cancel-button" id="cancelButton">Interromper busca</button></div>
+<div id="resultsArea" hidden><p id="resultSummary" class="result-summary"></p><p class="results-time" id="resultsTime"></p><div id="resultFilters" class="result-filters"><button data-sort="best" class="selected">Para você</button><button data-sort="price">Menor preço</button><button data-sort="duration">Mais rápido</button></div><div id="offerList"></div><p class="fare-note" id="fareNote">Tarifas observadas no site. Confirme preço e bagagem antes de comprar.</p></div>
+<div id="messageArea" hidden><div class="message-icon"><svg><use href="#note"/></svg></div><h2 id="messageTitle"></h2><p id="messageText"></p><button class="secondary" id="refreshButton">Consultar sessão</button></div>
+<form class="refinement" id="refinementForm" hidden><label for="refinementInput">Vamos ajustar a viagem?</label><div><input id="refinementInput" placeholder="Tente sair de Campinas…" maxlength="800" required><button type="submit" aria-label="Ajustar busca"><svg><use href="#arrow"/></svg></button></div><p>A mesma sessão mantém o contexto.</p></form>
+<details class="activity-log"><summary>Atividade da busca</summary><ol id="activityList"></ol><button class="text-button" id="inspectButton">Ver sessão e serviços</button></details>
+</section>
+</main>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<dialog id="settingsDialog"><div class="sheet-heading"><h2>Conexão OpenAI</h2><button class="icon-button" data-close="settingsDialog" aria-label="Fechar"><svg><use href="#close"/></svg></button></div><p class="sheet-copy">O navegador executa na OpenAI. Este aplicativo acompanha sua busca.</p><div class="service-row"><span>Conta</span><strong id="connectionStatus">Não conectada</strong></div><div class="service-row"><span>Decisions</span><strong id="decisionsStatus">Não testado</strong></div><div class="service-row"><span>Vault</span><strong id="vaultStatus">Não conectado</strong></div><div class="service-row"><span>Environment</span><strong id="environmentStatus">Criado na busca</strong></div><dl id="resourceDetails"></dl><button class="primary" id="connectButton">Conectar OpenAI</button><button class="secondary" id="testButton" hidden>Testar conexão</button><button class="text-button" id="platformButton">Abrir sessões na OpenAI</button><button class="text-button" id="closeSessionButton" hidden>Encerrar sessão hospedada</button><button class="text-button danger" id="disconnectButton" hidden>Desconectar</button><p class="sheet-footnote">Uso pessoal com sua chave. Há cobrança de API e ambiente. Buscas públicas não exigem credenciais no Vault.</p></dialog>
+<dialog id="travelersDialog"><div class="sheet-heading"><h2>Sua viagem</h2><button class="icon-button" data-close="travelersDialog" aria-label="Fechar"><svg><use href="#close"/></svg></button></div><label class="select-row">Adultos<select id="passengers"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option></select></label><label class="select-row">Classe<select id="cabin"><option value="economy">Econômica</option><option value="premium_economy">Econômica premium</option><option value="business">Executiva</option><option value="first">Primeira classe</option></select></label><label class="select-row">Tipo<select id="tripType"><option value="roundtrip">Ida e volta</option><option value="oneway">Somente ida</option></select></label><button class="primary" id="travelersDone">Pronto</button></dialog>
+<dialog id="approvalDialog"><div class="sheet-heading"><h2>Acesso ao site</h2></div><p class="sheet-copy">O navegador OpenAI pediu acesso a este endereço:</p><p class="approval-origin" id="approvalOrigin"></p><p class="sheet-copy" id="approvalReason"></p><button class="primary" id="approveButton">Permitir acesso</button><button class="secondary" id="denyButton">Recusar</button></dialog>
+</body></html>

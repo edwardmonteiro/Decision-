@@ -1,3 +1,9 @@
+# Decision-
+
+**Novo: [Decision Flights · APK Android](flights/README.md)** — buscador de
+passagens com navegador hospedado na OpenAI, Agents, Session, Environment,
+Vault e Decisions. Interface minimalista; ajustes na mesma sessão; sem JEV.
+
 # LUMI Orbit
 
 A fast, friendly Android vector arcade game for children. Portrait, one-finger controls, short expeditions, original synthesized sound and procedural line art.
