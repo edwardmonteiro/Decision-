@@ -76,7 +76,7 @@ public class MainActivity extends Activity {
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){return true;}
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){
                 Uri u=request.getUrl();String path=u.getPath();
-                if(!"https".equals(u.getScheme())||!"lumi.local".equals(u.getHost())||!("/index.html".equals(path)||"/style.css".equals(path)||"/game.js".equals(path)||"/live-voice.js".equals(path)))return new WebResourceResponse("text/plain","UTF-8",403,"Blocked",null,new ByteArrayInputStream(new byte[0]));
+                if(!"https".equals(u.getScheme())||!"lumi.local".equals(u.getHost())||!("/index.html".equals(path)||"/style.css".equals(path)||"/game.js".equals(path)||"/live-voice.js".equals(path)||"/levels.js".equals(path)))return new WebResourceResponse("text/plain","UTF-8",403,"Blocked",null,new ByteArrayInputStream(new byte[0]));
                 try{String mime=path.endsWith(".js")?"application/javascript":path.endsWith(".css")?"text/css":"text/html";return new WebResourceResponse(mime,"UTF-8",getAssets().open(path.substring(1)));}catch(IOException e){return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));}
             }
         });

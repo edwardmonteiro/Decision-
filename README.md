@@ -1,10 +1,10 @@
 # LUMI · Travessias
 
-A minimalist Android drawing puzzle for children. Draw an idea to cross the river; watch Lumi use it. Version 0.4.0 adds live spoken interaction to the drawing puzzle, preserving the package, signing certificate and encrypted OpenAI key.
+A minimalist Android drawing puzzle for children. Draw an idea to cross the river; watch Lumi use it. Version 0.5.0 adds a six-level, eighteen-challenge progression to the voice-enabled drawing puzzle. The package, signing certificate, key and previous play history are preserved.
 
 ## Play on your phone
 
-Install **LUMI-Travessias-v0.4.0.apk** over the previous LUMI app. Do not uninstall first if you want to preserve your key and local settings. Android 9+.
+Install **LUMI-Travessias-v0.5.0.apk** over the previous LUMI app. Do not uninstall first if you want to preserve your key and local settings. Android 9+.
 
 1. See the river: narrow/wide, calm/fast, sometimes with a backpack.
 2. Draw a **bridge**, **boat**, or **jump arrow** with one finger. Undo and clear are available.
@@ -13,6 +13,27 @@ Install **LUMI-Travessias-v0.4.0.apk** over the previous LUMI app. Do not uninst
 5. Tap **PRÓXIMO DESAFIO**. Agents prepares the next river using the recent solutions and outcomes.
 
 **Ver ideias** shows drawing examples. The speaker button reads the challenge using Android text-to-speech when a Portuguese voice is available. Sound and reduced movement are configurable.
+
+## Levels and stars
+
+The level button opens the adventure map. Each level has **three distinct challenges**. Complete all three to unlock the next level. Stars persist in a separate local `lumi-levels-v1` record. Previous wins, settings, drawing history and API key are retained; previous unstructured wins are not converted into curriculum stars.
+
+| Level | Lesson | New constraint |
+|---|---|---|
+| 1 · Primeiros passos | Calm, narrow water | Any working solution |
+| 2 · Vamos navegar | Increasingly wide rivers | Use a boat |
+| 3 · Salto certeiro | Increasing jump distance, then current | Use a jump |
+| 4 · Contra a corrente | Wide, fast water | Build a bridge |
+| 5 · Com a mochila | Cargo plus changing current | Choose a suitable cargo crossing |
+| 6 · Grande explorador | Combine width, current and cargo | Solve with one solution unavailable |
+
+Crossing the river and meeting the lesson goal are separate outcomes. For example, a bridge still crosses a boating lesson, but its star requires a boat. The result explains this difference. No timers or lives; failed attempts preserve stars and reveal a drawing hint after two unsuccessful attempts. Unclear image recognition also counts toward that help threshold.
+
+Repeating the same challenge cannot grant extra stars. Completed levels can be replayed from the map. Correcting a mistaken image classification recalculates any star granted by that result. Completing the campaign yields 18 stars; it does not reset progress.
+
+Agents' existing proposal is projected into the current lesson's safe width range and required current/cargo. Its theme and reason are retained. The label says **Agents + regras do nível**, because local curriculum rules constrain that proposal. This release does not add a new Agents endpoint or claim the planner received the level number. Actual played conditions still go into the existing outcome history.
+
+Voice changes to the sky preserve star eligibility. Changing width, water speed or cargo opens **brincadeira livre** for that river. Return to the original challenge through the map or result button to earn its star. Undo restores eligibility when the original conditions return. Drawings are preserved during voice changes.
 
 ## Talk to Lumi
 
@@ -72,6 +93,7 @@ Local daily limits: 24 Decisions calls, 12 Agents sessions and 6 voice starts. T
 Requires Java 17+, Android platform API 35+, Android build tools and a private release keystore. No Gradle, game engine or npm dependencies are needed by the Android build.
 
 ```bash
+node tests/levels.test.cjs
 node --check app/src/main/assets/game.js
 node --check app/src/main/assets/live-voice.js
 JSON_JAR=/path/to/json-20250517.jar bash scripts/test-direct.sh
@@ -79,9 +101,12 @@ JSON_JAR=/path/to/json-20250517.jar bash scripts/test-direct.sh
 bash scripts/build.sh
 ```
 
-Output: `build/LUMI-Travessias-v0.4.0.apk`. Never commit the signing material. CI can sign with the original release secrets. `server/` remains the unused v0.1 reference and is not contacted by the app.
+Output: `build/LUMI-Travessias-v0.5.0.apk`. Never commit the signing material. CI can sign with the original release secrets. `server/` remains the unused v0.1 reference and is not contacted by the app.
 
 ## Verification and limits
+
+- Curriculum tests cover all 18 goals, sequential unlocking, persistent progress, replay/deduplication, explicit recognition correction, voice eligibility and feasibility across all tested Agents condition combinations.
+- New UI checks cover level 1→2 unlocking, wrong-goal crossings, failure hints, voice practice/restore, reload persistence, replay selection and the 18-star completion screen at phone/desktop sizes.
 
 - 54 drawing/planner and 40 voice native fixture assertions pass. Voice tests cover fixed config, bounded payloads, quota, duplicate starts, failed cleanup and cancellation during session creation.
 - Native contract tests cover image request shape, no-ID responses, all classes, uncertainty, invalid schemas, history-conditioned planning, resource cleanup, quotas and data boundaries.

@@ -1,12 +1,24 @@
-# LUMI Travessias v0.4.0 — direct Android operation
+# LUMI Travessias v0.5.0 — direct Android operation
 
 ## Update and activation
 
-Install LUMI-Travessias-v0.4.0.apk over the existing LUMI app. The package remains com.edward.lumi, with versionCode 5 and the original signing certificate. Android Keystore alias and SharedPreferences name are unchanged. Do not uninstall if preserving the key. Old space mission caches/statuses are migrated away; Vault ID, key and daily counters remain. Old space scores are left untouched in their separate browser storage key.
+Install LUMI-Travessias-v0.5.0.apk over the existing LUMI app. The package remains com.edward.lumi, with versionCode 6 and the original signing certificate. Android Keystore alias and SharedPreferences name are unchanged. Do not uninstall if preserving the key. Old space mission caches/statuses are migrated away; Vault ID, key and daily counters remain. Old space scores are left untouched in their separate browser storage key.
 
 Open Configurações → Área dos responsáveis → Conectar OpenAI. Existing keys work without re-entry. Testing classifies a bundled bridge drawing and creates/reuses the Vault before planning a river. When the parent has already configured a Vault, opening the new game can prepare the first challenge directly.
 
 No backend is deployed or required. All provider calls use fixed HTTPS paths at api.openai.com. The native dialog protects key entry from screenshots, encrypts the key with Android Keystore AES-GCM, and never exposes it to JavaScript. Backups and WebView debugging are disabled. This is a personal-device BYOK app, not a distribution mechanism for shared developer keys.
+
+## Curriculum operation
+
+`levels.js` defines six levels and three goals per level. `lumi-levels-v1` stores six star counts and selected level independently of existing game preferences/history. Bounds and sequential unlocks are normalized on load. There is no migration of historical generic wins into stars.
+
+Every challenge owns its level, round, allowed solution rule, original mechanics, award flag and failure count. A new round follows earned progress; one round earns at most one star. Replays cannot farm progress. Recognition correction revokes an award owned by that result before re-evaluation. Failed crossings never revoke earlier stars.
+
+Crossing success remains the existing deterministic native-compatible rule. Curriculum-goal success is local and may differ: a bridge physically crosses a boat lesson but does not complete its learning goal. The UI makes this explicit. The native outcome retains physical success and the actual six-field river; no new API payload fields are introduced.
+
+Agents candidates remain strictly validated, then are projected into the lesson's width band and required current/cargo. Focus is replaced with a feasible solution satisfying the lesson. The UI attributes both Agents and local rules. Late initial results cannot overwrite a started drawing, attempted lesson or awarded stage. Level changes invalidate pending fetches. Duplicate next taps are guarded while waiting for outcome synchronization.
+
+Mechanical voice changes enter free play; original width/current/cargo equality controls star eligibility. Cosmetic theme changes stay eligible. Return to challenge and undo restore the original conditions. Two failures (including uncertain recognition) reveal a lesson-specific drawing hint. The voice get_river result includes level, goal, star count, eligibility and this hint.
 
 ## Classification contract
 
@@ -65,6 +77,6 @@ The native permission dialog may temporarily pause the activity. Before permissi
 
 ## Verification boundary
 
-Native contracts and browser flows were tested with fixtures. The prior user's screenshot established v0.2.0 Session/Environment/Vault operation, not the new v0.4.0 visual classifier's accuracy. Live GPT-Live speech, recognition/adaptive prompting and physical Android/WebRTC/permission/TTS checks remain to be performed with the user's configured account/device.
+Native contracts and browser flows were tested with fixtures. The prior user's screenshot established v0.2.0 Session/Environment/Vault operation, not the new v0.5.0 visual classifier's accuracy. Live GPT-Live speech, recognition/adaptive prompting and physical Android/WebRTC/permission/TTS checks remain to be performed with the user's configured account/device.
 
 Signing secrets remain outside the repository. CI secrets: LUMI_KEYSTORE_BASE64 and LUMI_STOREPASS. server/ is an unused legacy reference.
