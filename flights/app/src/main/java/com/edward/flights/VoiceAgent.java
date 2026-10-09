@@ -71,6 +71,9 @@ public final class VoiceAgent {
     }
     public synchronized JSONObject start(JSONObject request,JSONObject state)throws Exception{
         JSONObject body=createBody(request,state);
+        JSONObject suggested=request.optJSONObject("trip"),options=new JSONObject();
+        if(suggested!=null)for(String field:new String[]{"search_mode","priority","max_price_brl","nonstop"})if(suggested.has(field))options.put(field,suggested.get(field));
+        store.put("live_search_options",options.toString());
         // Recover a prior connection before opening a new billed voice session.
         if(!id.isEmpty())close();
         String token=request.optString("start_token","");if(!token.matches("[A-Za-z0-9_-]{0,100}"))throw new Exception("Invalid voice start token");store.put("live_start_token",token);
@@ -109,7 +112,10 @@ public final class VoiceAgent {
         if(completed.size()>=128)throw new FlightAgent.ApiError(429,"Encerre a conversa para iniciar outra.");
         JSONObject args=request.getJSONObject("arguments"),result;String name=request.getString("name");
         switch(name){
-            case "search_flights":if(args.length()!=7)throw new Exception("Invalid voice trip arguments");result=flights.begin(trip(args));break;
+            case "search_flights":if(args.length()!=7)throw new Exception("Invalid voice trip arguments");JSONObject voiceTrip=new JSONObject(args.toString());
+                JSONObject options;try{options=new JSONObject(store.get("live_search_options"));}catch(Exception e){options=new JSONObject();}
+                for(String field:new String[]{"search_mode","priority","max_price_brl","nonstop"})if(options.has(field))voiceTrip.put(field,options.get(field));
+                result=flights.begin(trip(voiceTrip));break;
             case "refine_search":if(args.length()!=1)throw new Exception("Invalid voice refinement");result=flights.begin(obj("followup",true,"text",args.getString("text")));break;
             case "get_search_status":if(args.length()!=0)throw new Exception("Invalid status arguments");result=flights.snapshot();break;
             case "cancel_search":if(args.length()!=0)throw new Exception("Invalid cancellation arguments");result=flights.cancel();break;

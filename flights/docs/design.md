@@ -104,3 +104,21 @@ sessão. Não houve transbordamento em 320, 360, 393, 540 ou 1280 px. A captura
 `connection-recovery-fixture.png` foi inspecionada em Chromium local. É evidência
 do código renderizado com fixture; não é uma sessão OpenAI real nem uma captura
 de aparelho físico. Nenhuma tarifa ou atividade de demonstração é enviada no APK.
+
+
+## Velocidade e serviços · v0.1.3
+
+A escolha Rápida/Avançada fica antes da ação de busca. Filtros estruturados
+aparecem na avançada, com aviso de exploração adicional. O painel Sua busca
+na OpenAI permanece visível na pesquisa e nos resultados: sandbox, operações
+computer_use, disponibilidade/uso observado de Web Search e estado Decisions.
+Não há contagem simulada. O estado comparando exibe as tarifas já verificadas
+sem atribuir uma escolha antes da resposta. IDs ficam a um toque do painel.
+
+81 verificações Playwright passaram em 320, 360, 393, 540 e 1280 px, incluindo
+filtros avançados, ausência de uso de uma ferramenta habilitada, confiança e
+tempo de Decisions, ofertas durante a comparação e acesso aos recursos.
+As capturas advanced-form.png e services-comparing-fixture.png foram
+inspecionadas; são renders do código com fixtures, sem dados reais.
+O Browser plugin não está disponível; foi usado Playwright/Chromium local.
+Busca em produção, latência da OpenAI e áudio no Android não foram medidos.

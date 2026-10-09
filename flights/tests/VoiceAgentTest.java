@@ -50,6 +50,10 @@ public final class VoiceAgentTest {
         voice.finished(obj("session_id","live_1","seconds",12.5));check(voice.sessionId().isEmpty()&&voice.snapshot().getString("seconds").equals("12.5"),"Terminal usage recorded once");
         voice.start(request(),new JSONObject());transport.failHangup=true;rejects(voice::close,"Failed hangup reported");check(memory.get("live_id").equals("live_2"),"Failed hangup keeps recoverable ID");
         transport.failHangup=false;VoiceAgent recovered=new VoiceAgent(transport,memory);recovered.start(request(),new JSONObject());check(transport.hangups==2&&recovered.sessionId().equals("live_3"),"Recovery closes previous connection before new session");
+        JSONObject advanced=request();advanced.getJSONObject("trip").put("search_mode","advanced").put("priority","price").put("max_price_brl",5000).put("nonstop",true);
+        recovered.close();recovered.start(advanced,new JSONObject());Fake advancedTransport=new Fake();FlightAgent advancedFlights=new FlightAgent(advancedTransport,new Memory());
+        recovered.action(advancedFlights,action(recovered.sessionId(),"call_advanced","search_flights",itinerary()));
+        check(advancedFlights.snapshot().getJSONObject("trip").getString("search_mode").equals("advanced")&&advancedFlights.snapshot().getJSONObject("trip").getBoolean("nonstop")&&advancedTransport.lastCreate.getJSONObject("agent").getJSONArray("tools").length()==2,"Voice-built itinerary preserves selected advanced mode and filters");
         recovered.close();check(memory.get("live_id").isEmpty(),"Hangup clears ID");
         transport.malformed=true;rejects(()->recovered.start(request(),new JSONObject()),"Malformed SDP answer rejected");check(!memory.get("live_id").isEmpty(),"Malformed handoff keeps ID for cleanup");recovered.close();
         System.out.println("PASS: "+(checks-start)+" offline GPT Live protocol and action checks (no live audio).");

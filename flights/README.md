@@ -1,13 +1,46 @@
-# Decision Flights · Android v0.1.2
+# Decision Flights · Android v0.1.3
 
 Buscador minimalista de passagens com navegador hospedado na OpenAI. A interface
 roda no celular; a navegação usa Agents com `computer_use`, um Environment
 `openai_hosted` e Session persistente. Decisions compara as tarifas observadas.
 GPT Live 1 recebe sua voz e conversa em português brasileiro. Sem servidor próprio, JEV, browser-use, anúncios ou tarifas de demonstração.
 
+## Busca rápida, avançada e serviços visíveis · v0.1.3
+
+A primeira viagem vai no `input` de `POST /agents/sessions`, sem leitura de
+turnos vazios, espera do SSE ou segundo POST de mensagem. Com Vault salvo, esse
+início usa uma chamada; sem Vault, duas. Isso reduz etapas do cliente, sem
+prometer um tempo total de busca. O Vault é verificado no teste de conexão e
+validado pela OpenAI ao criar a sessão, sem GET prévio a cada viagem.
+
+Uma nova viagem reutiliza o navegador somente após confirmar sessão `idle`,
+environment `connected` e mesmo modo de ferramentas. Caso contrário, encerra
+ou limpa a sessão ausente e cria outra. Tarifas, imagem e contadores antigos
+são apagados antes da nova tarefa. Criação sem resposta é recuperada por
+metadata, incluindo o input inicial, sem duplicar sessão ou pedido.
+
+- **Rápida:** até três ofertas verificadas em uma página, sem Web Search.
+- **Avançada:** até seis ofertas, prioridade, teto em BRL por pessoa e voos
+  diretos. Habilita `web_search` com contrato próprio de Agents. O agente pode
+  usá-lo para contexto de rota/aeroporto; preços exigem verificação no navegador.
+  Se não houve chamada, a tela informa **Disponível · não utilizado**.
+- **Sua busca na OpenAI:** sandbox, operações `computer_use`, chamadas Web Search
+  e comparação Decisions aparecem também junto aos resultados. Contadores vêm
+  de IDs reais dos itens, com deduplicação entre SSE, polling e reabertura.
+
+Filtros conhecidos são conferidos no cliente: escalas da ida, orçamento em
+BRL com base de preço comparável e limite de ofertas. Valores em outras moedas
+ou apenas de ida não satisfazem um teto para uma viagem completa de ida e volta.
+Voz usa o modo e os filtros selecionados no formulário.
+
+Decisions compara as ofertas depois da pesquisa; a navegação é feita pelo
+agente com `computer_use`. As tarifas são publicadas antes de aguardar essa
+comparação. Se a comparação falhar ou ficar sem confirmação ao reabrir o app,
+as tarifas são preservadas e nenhuma nova chamada de ranking é disparada.
+
 ## Instalar e conectar
 
-1. Instale `Decision-Flights-v0.1.2.apk` em Android 9 ou superior.
+1. Instale `Decision-Flights-v0.1.3.apk` em Android 9 ou superior.
 2. Abra a engrenagem e toque **Conectar OpenAI**. Insira sua chave no diálogo
    nativo protegido. A chave não passa pelo JavaScript.
 3. **Conectar e testar** faz uma chamada real a Decisions e cria ou reutiliza um
@@ -57,7 +90,9 @@ A leitura de atividade passou a usar
 sessão. A resposta final precisa pertencer à tarefa raiz atual; mensagens de
 outras tarefas e subagentes não viram tarifas. A leitura segue a paginação.
 
-O acompanhamento tenta conectar o SSE antes de enviar a tarefa e recupera
+Em ajustes ou reutilização, o acompanhamento conecta o SSE antes do envio.
+Na primeira busca, a viagem segue junto com a criação da sessão; o SSE conecta
+logo após a resposta. O acompanhamento recupera
 eventos perdidos por consulta. Erros HTTP, falhas de sessão, navegador ou
 tarefa deixam de ser ignorados. Falha do stream não é tratada como falha da
 busca: a mesma sessão continua sendo consultada. Falhas permanentes da
@@ -83,10 +118,11 @@ diagnósticos; nenhuma requisição completa é armazenada.
 
 | Recurso | Uso |
 |---|---|
-| Agents / Session | `gpt-6-astra`, uma sessão por viagem; ajustes mantêm o contexto |
+| Agents / Session | `gpt-6-astra`; criação com input inicial; reutilização de sessão idle e navegador conectado no mesmo modo; ajustes mantêm contexto |
 | Environment | Desktop/navegador `openai_hosted`; rede restrita aos hosts necessários ao Google Flights |
 | Vault | Vault real vinculado à sessão, inicialmente sem segredos: a busca pública não precisa de login |
-| Decisions | `gpt-6-luna`, intenção no teste de conexão e escolha entre até seis ofertas observadas |
+| Decisions | `gpt-6-luna`, intenção no teste de conexão e escolha após as tarifas verificadas; estado, confiança e latência visíveis |
+| Web Search | Ferramenta Agents em modo `live`, contexto baixo e domínios Google; disponível na busca avançada, uso mostrado apenas quando observado |
 | GPT Live 1 | WebRTC direto com a OpenAI, vozes brasileiras Bossa e Tempo; `gpt-6-luna` interpreta pedidos e chama funções de busca |
 | Streaming | Eventos SSE com atividade e captura de tela; consultas recuperam eventos perdidos |
 
@@ -97,9 +133,12 @@ não recebe destaque. Se Decisions falhar, as tarifas verificadas continuam
 disponíveis. CAPTCHA, login ou ausência de preço claro resultam em uma mensagem
 honesta e nenhuma tarifa inventada.
 
-O tempo exibido é medido durante cada busca. O benchmark de sete segundos com
+O tempo exibido é medido no celular durante cada busca. Os marcos de ambiente,
+primeira atividade e primeira chamada são horários de confirmação local,
+não tempos internos do provedor. Eles podem se sobrepor e não devem ser somados.
+A latência de Decisions mede a requisição completa, incluindo rede. O benchmark de sete segundos com
 JEV não é uma garantia para esta implementação. Há cobrança de API e ambiente;
-o app não inventa um custo em dólares. Os IDs dos serviços ficam nas configurações.
+o app não inventa um custo em dólares. Os IDs dos serviços podem ser abertos diretamente pelo painel de andamento.
 
 ## Recuperação e encerramento
 
@@ -138,8 +177,8 @@ CHROMIUM_EXECUTABLE_PATH=/path/to/chromium node flights/tests/ui-test.cjs
 O alias da chave de assinatura é `flights`. Guarde o backup privado da assinatura
 para instalar futuras versões como atualização. Nunca envie esse backup ao git.
 
-Validação realizada: compilação e assinatura Android; 189 verificações de
-contrato/ciclo de vida e 45 de GPT Live com fixtures; 68 verificações da
+Validação realizada: compilação e assinatura Android; 267 verificações de
+contrato/ciclo de vida e 49 de GPT Live com fixtures; 81 verificações da
 interface em Chromium local, com larguras 320, 360, 393, 540 e 1280 px.
 Inclui consulta rejeitada, recuperação sem duplicação, paginação, falhas
 de navegador/sessão, estado legível durante espera de rede, permissão negada,

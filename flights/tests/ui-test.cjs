@@ -20,6 +20,14 @@ function check(value,message){assert.ok(value,message);checks++;}
  check((await page.locator('#travelersLabel').textContent()).includes('2 adultos · Executiva'),'Traveler controls');check(await page.locator('#returning').isDisabled(),'One-way disables return date');
  await page.locator('#searchButton').click();check(await page.locator('#settingsDialog').isVisible(),'Missing connection opens setup');
  check(await page.locator('.offer').count()===0,'Preview ships no fabricated results');await page.locator('[data-close="settingsDialog"]').click();
+ await page.locator('[data-mode="advanced"]').click();await page.locator('#advancedFilters summary').click();
+ await page.locator('#priority').selectOption('price');await page.locator('#maxPrice').fill('5000');await page.locator('#nonstop').check();
+ check(await page.locator('#advancedFilters').isVisible()&&(await page.locator('#modeNote').textContent()).includes('Pode demorar mais'),'Advanced mode exposes filters and time tradeoff');
+ check(await page.evaluate(()=>{const t=trip();return t.search_mode==='advanced'&&t.priority==='price'&&t.max_price_brl===5000&&t.nonstop;}),'Advanced filters become a validated native search request');
+ await page.screenshot({path:root+'/advanced-form.png',fullPage:true});
+ for(const width of [320,360,393,540,1280]){await page.setViewportSize({width,height:830});check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Advanced form fits '+width);}
+ await page.setViewportSize({width:393,height:830});
+ await page.locator('[data-mode="quick"]').click();check(await page.locator('#advancedFilters').isHidden()&&await page.evaluate(()=>trip().max_price_brl===0&&!trip().nonstop),'Quick mode omits advanced filters');
  for(const width of [320,360,393,540,1280]){
   await page.setViewportSize({width,height:830});check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'No horizontal overflow at '+width);
  }
@@ -96,6 +104,15 @@ function check(value,message){assert.ok(value,message);checks++;}
   const offer=(id,price,duration,stops)=>({id,airline:id==='f1'?'Companhia fixture':'<img src=x onerror=alert(1)>',price,currency:'BRL',price_scope:'trip_per_person',duration_minutes:duration,stops,departure:'GRU 22:00',arrival:'LIS 11:40 +1',baggage:'Não informado',source_url:'https://www.google.com/travel/flights/search?tfs=fixture',details:'Tarifa fictícia para teste da interface.'});
   window.fixture={...window.fixture,running:false,phase:'complete',summary:'Dados de teste da interface.',completed_at:Date.now(),checked_at:Date.now(),ranking:{status:'ok',offer_id:'f2'},offers:[offer('f1',5000,580,0),offer('f2',4500,700,1)]};window.DecisionState(JSON.stringify(window.fixture));
  });
+ await p.evaluate(()=>{window.fixture={...window.fixture,search_mode:'advanced',sandbox_reused:true,environment_status:'connected',environment_ready_at:window.fixture.started_at+1500,browser_operations:4,first_browser_at:window.fixture.started_at+2200,web_operations:1,first_web_at:window.fixture.started_at+3000,ranking:{status:'comparing'}};window.DecisionState(JSON.stringify(window.fixture));});
+ check(await p.locator('#resultsArea').isVisible()&&await p.locator('.offer').count()===2&&await p.locator('.best-label').count()===0,'Verified fares are visible during Decisions comparison, without a fabricated best label');
+ check((await p.locator('#serviceStages').textContent()).includes('Comparando as tarifas')&&(await p.locator('#serviceStages').textContent()).includes('4 operações observadas')&&(await p.locator('#serviceStages').textContent()).includes('Navegador reaproveitado'),'Visible service panel explains sandbox, actual browser calls and Decisions');
+ await p.screenshot({path:root+'/services-comparing-fixture.png',fullPage:true});
+ await p.evaluate(()=>{window.fixture={...window.fixture,ranking:{status:'ok',offer_id:'f2',confidence:.92,latency_ms:450}};window.DecisionState(JSON.stringify(window.fixture));});
+ check((await p.locator('#serviceStages').textContent()).includes('92% de confiança')&&(await p.locator('#serviceStages').textContent()).includes('0,5 s'),'Actual Decisions confidence and measured latency render');
+ await p.evaluate(()=>{window.fixture={...window.fixture,web_operations:0,first_web_at:0};window.DecisionState(JSON.stringify(window.fixture));});
+ check((await p.locator('#serviceStages').textContent()).includes('Disponível · não utilizado'),'Enabled Web Search is not falsely reported as used');
+ await p.locator('#servicesButton').click();check(await p.locator('#resourceDetails').textContent().then(t=>t.includes('Session')&&t.includes('Environment')&&t.includes('Vault')),'Resource details are reachable from the visible service panel');await p.locator('[data-close="settingsDialog"]').click();
  check(await p.locator('.offer').count()===2&&await p.locator('.best-label').count()===1,'Offers and actual ranking selection render');
  check(await p.locator('.offer img').count()===0,'Model text cannot insert markup');
  await p.locator('[data-sort="price"]').click();check((await p.locator('.offer').first().textContent()).includes('4.500'),'Comparable price order');

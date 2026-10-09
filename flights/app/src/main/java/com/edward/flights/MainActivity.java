@@ -104,6 +104,7 @@ public class MainActivity extends Activity {
     private FlightAgent createAgent(String key)throws Exception{return new FlightAgent(new FlightAgent.Transport(){
         public JSONObject call(String p,String m,JSONObject b,String i)throws Exception{return MainActivity.this.call(key,p,m,b,i);}
         public void watch(String id){streamRetryAt=0;startStream(id,true);}
+        public void updated(){push();}
     },accountStore(key));}
     private VoiceAgent createVoice(String key)throws Exception{return new VoiceAgent((p,m,b,i)->call(key,p,m,b,i),accountStore(key));}
     private HttpsURLConnection connection(String key,String path) throws Exception {
