@@ -28,6 +28,8 @@ jobs:
         run: |
           curl --fail --location https://repo.maven.apache.org/maven2/org/json/json/20250517/json-20250517.jar --output "$RUNNER_TEMP/json.jar"
           JSON_JAR="$RUNNER_TEMP/json.jar" bash scripts/test-direct.sh
+      - name: Test flight search and GPT Live contracts with fixtures
+        run: JSON_JAR="$RUNNER_TEMP/json.jar" bash flights/scripts/test.sh
   apk:
     if: github.event_name == 'workflow_dispatch'
     needs: verify

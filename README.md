@@ -1,3 +1,9 @@
+# Decision-
+
+**Novo: [Decision Flights · APK Android](flights/README.md)** — buscador de
+passagens com navegador hospedado na OpenAI, Agents, Session, Environment,
+Vault e Decisions. Interface minimalista; ajustes na mesma sessão; sem JEV.
+
 # LUMI · Travessias
 
 A minimalist Android drawing puzzle for children. Draw an idea to cross the river; watch Lumi use it. Version 0.4.0 adds live spoken interaction to the drawing puzzle, preserving the package, signing certificate and encrypted OpenAI key.
