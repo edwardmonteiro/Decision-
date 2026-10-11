@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07121e"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'none'; object-src 'none'; base-uri 'none'"><title>LUMI · Caminhos</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<main id="app">
+  <header><div class="brand">LUMI<span>CAMINHOS</span></div><div class="header-tools"><button id="listen" class="icon" aria-label="Ouvir a dica"></button><button id="settings" class="icon circle" aria-label="Configurações"></button></div></header>
+  <button id="map" class="level-strip" aria-label="Abrir mapa de fases"><span id="level-label"></span><span id="best-stars" class="stars"></span><span data-icon="right"></span></button>
+  <section class="intro"><h1 id="title"></h1><p id="instruction">Desenhe o caminho. Leve a bolinha para casa.</p></section>
+  <div id="board-wrap"><canvas id="board" aria-label="Desenhe rampas com o dedo ou mouse para conduzir a bolinha até a casa."></canvas><div id="board-tip">SEU TRAÇO VIRA CHÃO</div><div id="paused-label" hidden>Em pausa</div></div>
+  <div id="feedback" role="status" aria-live="polite">Ligue os pontinhos com o dedo.</div>
+  <div class="tools"><button id="undo"><span data-icon="undo"></span>Desfazer</button><button id="clear"><span data-icon="erase"></span>Apagar</button><button id="hint"><span data-icon="bulb"></span>Dica</button></div>
+  <footer><button id="action" class="primary"><span id="action-label">SOLTAR BOLINHA</span><span id="action-icon" data-icon="play"></span></button><button id="edit" class="secondary" hidden>Ajustar desenho</button><p id="footnote">Sem pressa. Você pode tentar quantas vezes quiser.</p></footer>
+</main>
+<div id="overlay" hidden><section id="panel" role="dialog" aria-modal="true" aria-labelledby="panel-title" tabindex="-1"></section></div>
+<script src="physics.js"></script><script src="levels.js"></script><script src="game.js"></script>
+</body></html>
