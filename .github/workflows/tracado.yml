@@ -1,0 +1,18 @@
+name: LUMI Tracado
+on:
+  pull_request:
+    paths: ['tracado/**', '.github/workflows/tracado.yml']
+  push:
+    paths: ['tracado/**', '.github/workflows/tracado.yml']
+permissions:
+  contents: read
+jobs:
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check tracado/app/src/main/assets/game.js
+      - run: node tracado/tests/race.test.cjs
